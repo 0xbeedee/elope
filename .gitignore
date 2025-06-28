@@ -169,6 +169,6 @@ cython_debug/
 
 # Others
 spielraum.ipynb
-act_data/
+data/
 .vscode/
 artefacts/
