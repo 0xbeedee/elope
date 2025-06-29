@@ -9,4 +9,4 @@ The code uses `python 3.13`. To run it, do the following:
 1. (Optional) Set up a virtual environment (`python3.13 -m venv .`);
 2. Install all the requirements (`pip install -r requirements.txt`);
 3. Install the project in editable mode (i.e., `pip install -e .`);
-4. TODO
+4. Run the `run_idea.py` script with the idea desired.
