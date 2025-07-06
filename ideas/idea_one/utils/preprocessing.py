@@ -1,43 +1,111 @@
-from typing import Tuple
+from typing import Generator
 
 import os
-from collections import namedtuple
+from math import ceil
 
 import numpy as np
-import pandas as pd
+import h5py
 
 
-# TODO this approach takes way too much RAM (>100GB), perhaps stream the data with generators? => or use generators to write data to files, and then stream from these files to the neural net?!
-def preprocess_data(data_path: str):
-    """Preprocesses the train and test data."""
-    np_data = []
-    for f in os.listdir(data_path):
-        if not f.endswith(".npz"):
+def preprocess_data_streaming(data_path: str) -> None:
+    """Preprocesses data in a streaming fashion, saving it incrementally to a file."""
+    # base path to save to
+    out_path = os.path.join(data_path, "preprocessed")
+    os.makedirs(out_path, exist_ok=True)
+
+    for fname in os.listdir(data_path):
+        if not fname.endswith(".npz"):
             # ignore all non-npz fles
             continue
-        np_data.append(np.load(f))
 
-    events_data = []  # events from the DVS camera
-    trajectory_data = []  # trajectory + rangemeter data
-    # TODO possibly include in the loop above?
-    for data in np_data:
-        time_s = data["timestamps"]  # in seconds
-        events_data.append(extract_2D_event_stacks(data["events"], time_s))
-        # TODO ignore the rangemeter for now (it operates with different timestamps, which creates quite the headache)
-
-    clean_data = namedtuple("Data", "events trajectory")
-    return clean_data(events_data, trajectory_data)
+        fpath = os.path.join(data_path, fname)
+        out_file = os.path.join(out_path, f"{fname.replace('.npz', '.h5')}")
+        if os.path.exists(out_file):
+            # to enable checkpointing, we skip already-present files
+            # (assumes that, if it exists, the file has the correct data)
+            continue
+        _process_single_file_streaming(fpath, out_file)
 
 
-def extract_2D_event_stacks(events: np.ndarray, time_s: np.ndarray) -> np.ndarray:
+def read_preprocessed_data_streaming(data_path: str) -> Generator:
+    """Reads the preprocessed data in a streaming fashion, producing it incrementally."""
+    preprocessed_path = os.path.join(data_path, "preprocessed")
+
+    # the directory must exist and it must contain data
+    assert os.path.exists(preprocessed_path) and os.listdir(
+        preprocessed_path
+    ), "[!] Preprocessed data does not exist"
+
+    for fname in os.listdir(preprocessed_path):
+        if not fname.endswith(".h5"):
+            # ignore all non-h5py files
+            continue
+
+        fpath = os.path.join(preprocessed_path, fname)
+        with h5py.File(fpath, "r") as f:
+            X_group = f["X"]  # data
+            y_group = f["y"]  # labels
+
+            indices = sorted(X_group.keys(), key=int)
+            for i in indices:
+                X_i = X_group[i]
+                features = {
+                    "event_stack": X_i["event_stack"][:],
+                    "trajectory": X_i["trajectory"][:],
+                    "rangemeter": X_i["rangemeter"][:],
+                }
+                labels = y_group[i][:]
+                yield features, labels
+
+
+def _process_single_file_streaming(fpath: str, out_file: str) -> None:
+    data = np.load(fpath)
+    time_s = data["timestamps"]  # in seconds
+
+    events = data["events"]  # in microseconds
+    traj_data = data["traj"]  # in seconds
+    rangemeter_data = data["range_meter"]  # in seconds (sampled at 10Hz)
+
+    ev_gen = _event_stacks_generator(events, time_s)
+    with h5py.File(out_file, "w") as f:
+        X_group = f.create_group("X")  # data
+        y_group = f.create_group("y")  # labels
+
+        start_rm_idx = 0
+        for i, event_stack in enumerate(ev_gen):
+            # so that we can index into X, i.e., do X[i]
+            X_i = X_group.create_group(f"{i}")
+            # assign event data
+            X_i.create_dataset(f"event_stack", data=event_stack, compression="gzip")
+            # assign trajectory data
+            # (phi, theta, psi and p, q, r are for training)
+            X_i.create_dataset(f"trajectory", data=traj_data[i, 6:], compression="gzip")
+            # assign rangemeter data
+            slice = _get_rangemeter_slice_(
+                i, start_rm_idx, len(traj_data), len(rangemeter_data)
+            )
+            X_i.create_dataset(
+                f"rangemeter",
+                data=rangemeter_data[slice],
+                compression="gzip",
+            )
+
+            # so that we can index into y, i.e., do y[i]
+            # (x, y, z and vx, vy, vz are for supervision)
+            y_group.create_dataset(f"{i}", data=traj_data[i, :6], compression="gzip")
+
+
+def _event_stacks_generator(
+    events: np.ndarray, time_s: np.ndarray
+) -> Generator[np.ndarray]:
     """Extracts stacks of events, i.e., 3-tensors, where each slice in the stack is a 2D array indicating the polarities at each timestep (in microseconds).
     Each stack is made up of these 2D slices, up to a time specified in seconds (by `time_s`).
 
-    The function returns a list of these stacks, as with as many 3-tensors as there are timesteps in `time_s`.
+    The generator yields a list of these stacks, as with as many 3-tensors as there are timesteps in `time_s`.
     """
     t = 1
     last_ts = events[0][3]
-    events_stack_2D, events_stack_list = [], []
+    events_stack_2D = []
     event_canvas = np.zeros((200, 200), dtype=np.int8)
     positions = []
     polarities = []
@@ -58,10 +126,46 @@ def extract_2D_event_stacks(events: np.ndarray, time_s: np.ndarray) -> np.ndarra
             positions.append((x, y))
             polarities.append(polarity)
         else:
+            if events_stack_2D:
+                yield np.array(events_stack_2D)
+                events_stack_2D.clear()  # free memory
+
             t += 1
-            print("==> ", t)
-            events_stack_list.append(np.array(events_stack_2D))
         if t >= len(time_s):
             break
 
-    return events_stack_list
+    if events_stack_2D:
+        # yield any remaining stack
+        yield np.array(events_stack_2D)
+        events_stack_2D.clear()
+
+
+def _get_rangemeter_slice_(
+    cur_traj_idx: int,
+    start_rm_idx: int,
+    traj_len: int,
+    rangemeter_len: int,
+) -> int:
+    """Calculates the rangemeter slice necessary to match the timestamps of the trajectory.
+
+    This is necessary because the rangemeter samples data at 10Hz, while the trajectory is sampled at 120 points in time, which do not map one-to-one to rangemeter data.
+
+    The final underscore indicates that this function modifies `start_rm_idx`.
+    """
+    # rangemeter data must be funer than trajectory data (need >=12s of data)
+    assert rangemeter_len > traj_len
+
+    # max number of rangemeter datapoints for one traj datapoint
+    max_n_rm = ceil(rangemeter_len / traj_len)
+    # the index at which to assign n_rm datapoints to each rangemeter slice
+    switching_idx = max_n_rm * traj_len - rangemeter_len
+
+    start_idx = start_rm_idx
+    if cur_traj_idx < switching_idx:
+        end_idx = start_idx + (max_n_rm - 1)
+    else:
+        end_idx = start_idx + max_n_rm
+    # update the starting rangemeter index
+    start_rm_idx = end_idx
+
+    return slice(start_idx, end_idx)

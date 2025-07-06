@@ -18,7 +18,6 @@ cycler==0.12.1
 debugpy==1.8.14
 decorator==5.2.1
 defusedxml==0.7.1
--e git+ssh://git@github.com/de-lachende-cavalier/elope.git@3eefa12c7cf8a2563f3dd18952794adb975ba090#egg=elope
 executing==2.2.0
 fastjsonschema==2.21.1
 filelock==3.18.0
@@ -26,6 +25,7 @@ fonttools==4.58.4
 fqdn==1.5.1
 fsspec==2025.5.1
 h11==0.16.0
+h5py==3.14.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.10
