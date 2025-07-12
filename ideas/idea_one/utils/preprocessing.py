@@ -27,37 +27,6 @@ def preprocess_data_streaming(data_path: str) -> None:
         _process_single_file_streaming(fpath, out_file)
 
 
-def read_preprocessed_data_streaming(data_path: str) -> Generator:
-    """Reads the preprocessed data in a streaming fashion, producing it incrementally."""
-    preprocessed_path = os.path.join(data_path, "preprocessed")
-
-    # the directory must exist and it must contain data
-    assert os.path.exists(preprocessed_path) and os.listdir(
-        preprocessed_path
-    ), "[!] Preprocessed data does not exist"
-
-    for fname in os.listdir(preprocessed_path):
-        if not fname.endswith(".h5"):
-            # ignore all non-h5py files
-            continue
-
-        fpath = os.path.join(preprocessed_path, fname)
-        with h5py.File(fpath, "r") as f:
-            X_group = f["X"]  # data
-            y_group = f["y"]  # labels
-
-            indices = sorted(X_group.keys(), key=int)
-            for i in indices:
-                X_i = X_group[i]
-                features = {
-                    "event_stack": X_i["event_stack"][:],
-                    "trajectory": X_i["trajectory"][:],
-                    "rangemeter": X_i["rangemeter"][:],
-                }
-                labels = y_group[i][:]
-                yield features, labels
-
-
 def _process_single_file_streaming(fpath: str, out_file: str) -> None:
     data = np.load(fpath)
     time_s = data["timestamps"]  # in seconds
