@@ -11,5 +11,13 @@ class Idea(ABC):
         self.test_data_path = os.path.join(os.getcwd(), "data/train")
 
     @abstractmethod
-    def run() -> None:
+    def preprocess_data(self) -> None:
+        pass
+
+    @abstractmethod
+    def train_net(self) -> None:
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
         pass
