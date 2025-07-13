@@ -14,29 +14,53 @@ class IdeaOne(Idea):
 
     def __init__(self, device: torch.device = torch.device("cpu")):
         super().__init__()
-        self.p_net = ParallelNet()
+        # TODO actually build the net...
+        # self.p_net = ParallelNet()
+
+        self.optimizer = None  # TODO: optimizer
+        self.criterion = None  # TODO: loss criterion
 
     def preprocess_data(self) -> None:
-        print(f"[+] {self.__name__}: Preprocessing the training data...")
         preprocess_data_streaming(self.train_data_path)
-
-        print(f"[+] {self.__name__}: Preprocessing the test data...")
         preprocess_data_streaming(self.test_data_path)
 
-    def train_net(self) -> None:
-        print(f"[+] {self.__name__}: Training the neural net...")
+    # TODO put accumulation_steps into the YAML
+    def train_net(self, accumulation_steps: int = 8) -> None:
         train_dataset = EventsTrajDataset(self.train_data_path)
-        train_loader = DataLoader(train_dataset, batch_size=8)
+        # set batch_size to 1 because event stacks have variable lengths
+        train_loader = DataLoader(train_dataset, batch_size=1)
 
+        acc_samples, acc_labels = [], []
         for X_batch, y_batch in train_loader:
-            print(X_batch, y_batch)
-        #     optimizer.zero_grad()
-        #     preds_batch = self.p_net(X_batch)
-        #     loss = criterion(preds_batch, y_batch)
-        #     loss.backward()
-        #     optimizer.step()
+            acc_samples.append(X_batch)
+            acc_labels.append(y_batch)
+            if len(acc_samples) == accumulation_steps:
+                self._process_acc_batch(acc_samples, acc_labels)
+                acc_samples.clear()
+                acc_labels.clear()
+
+        if acc_samples:
+            # handle the remaining samples
+            self._process_acc_batch(acc_samples, acc_labels)
 
     def run(self) -> None:
         test_dataset = EventsTrajDataset(self.test_data_path)
         # TODO save output in desired JSON format
         pass
+
+    # TODO type annotations
+    def _process_acc_batch(self, samples, labels):
+        """Processes a single accumulated batch of data."""
+        total_loss = 0
+
+        self.optimizer.zero_grad()
+        for sample, label in zip(samples, labels):
+            # have the network handle single sample to both preserve temporal and spatial semantics
+            pred = self.p_net(sample)
+            loss = self.criterion(pred, label)
+            loss.backward()
+            total_loss += loss.item()
+        self.optimizer.step()
+
+        # mean-reduce the loss
+        return total_loss / len(samples)
