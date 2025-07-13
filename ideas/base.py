@@ -8,7 +8,7 @@ class Idea(ABC):
     def __init__(self):
         # these are useful to all ideas (and remain constant)
         self.train_data_path = os.path.join(os.getcwd(), "data/train")
-        self.test_data_path = os.path.join(os.getcwd(), "data/train")
+        self.test_data_path = os.path.join(os.getcwd(), "data/test")
 
     @abstractmethod
     def preprocess_data(self) -> None:
