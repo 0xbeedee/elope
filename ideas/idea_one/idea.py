@@ -35,13 +35,13 @@ class IdeaOne(Idea):
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == accumulation_steps:
-                self._process_acc_batch(acc_samples, acc_labels)
+                self._acc_batch_train(acc_samples, acc_labels)
                 acc_samples.clear()
                 acc_labels.clear()
 
         if acc_samples:
             # handle the remaining samples
-            self._process_acc_batch(acc_samples, acc_labels)
+            self._acc_batch_train(acc_samples, acc_labels)
 
     def run(self) -> None:
         test_dataset = EventsTrajDataset(self.test_data_path)
@@ -49,7 +49,7 @@ class IdeaOne(Idea):
         pass
 
     # TODO type annotations
-    def _process_acc_batch(self, samples, labels):
+    def _acc_batch_train(self, samples, labels):
         """Processes a single accumulated batch of data."""
         total_loss = 0
 
