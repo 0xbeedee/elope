@@ -1,0 +1,26 @@
+idea_name: "one"
+
+global:
+  optim_lr: 0.001 # learning rate for the optimiser
+  acc_steps: 8 # accumulation steps (i.e., batch size)
+
+nets:
+  device: "cpu"
+
+  # the desired number of frames in the stack, after passing the stack through the 3D convs
+  N_out_conv: 400 
+  # the hidden dims for each layer of the convnet 
+  conv_dims: [16, 32, 64]
+  # the dimension of the output layer of the events FC net
+  events_fc_out: 32
+  # the hidden dims for each layer of the FC trajectory net 
+
+  traj_dims: [16, 32] 
+  # the output dimension of the FC trajectory net
+  traj_out: 32
+  # the hidden dims of the final FC network
+
+  final_dims: [64, 92, 64]
+  # the output dimension of the FC final net
+  final_out: 128
+
