@@ -1,3 +1,5 @@
+from omegaconf import DictConfig
+
 from ideas.base import Idea
 from ideas.idea_one.nets.parallel_net import ParallelNet
 from ideas.idea_one.utils import EventsTrajDataset, preprocess_data_streaming
@@ -12,20 +14,20 @@ class IdeaOne(Idea):
     This is a far easier task than predicting entire trajectories, and maximises data usage (because each transition becomes a data point, instead of a whole trajectory).
     """
 
-    def __init__(self, device: torch.device = torch.device("cpu")):
-        super().__init__()
-        # TODO actually build the net...
-        # self.p_net = ParallelNet()
+    def __init__(self, config: DictConfig):
+        super().__init__(config)
+        self.p_net = ParallelNet(config["nets"])
 
-        self.optimizer = None  # TODO: optimizer
+        self.optimizer = torch.optim.Adam(
+            self.p_net.parameters(), lr=self.conf["optim_lr"]
+        )  # TODO: investigate this
         self.criterion = None  # TODO: loss criterion
 
     def preprocess_data(self) -> None:
         preprocess_data_streaming(self.train_data_path)
         preprocess_data_streaming(self.test_data_path)
 
-    # TODO put accumulation_steps into the YAML
-    def train_net(self, accumulation_steps: int = 8) -> None:
+    def train_net(self) -> None:
         train_dataset = EventsTrajDataset(self.train_data_path)
         # set batch_size to 1 because event stacks have variable lengths
         train_loader = DataLoader(train_dataset, batch_size=1)
@@ -34,7 +36,8 @@ class IdeaOne(Idea):
         for X_batch, y_batch in train_loader:
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
-            if len(acc_samples) == accumulation_steps:
+            if len(acc_samples) == self.conf["acc_steps"]:
+                # TODO i do not use the loss returned by this
                 self._acc_batch_train(acc_samples, acc_labels)
                 acc_samples.clear()
                 acc_labels.clear()
@@ -48,8 +51,7 @@ class IdeaOne(Idea):
         # TODO save output in desired JSON format
         pass
 
-    # TODO type annotations
-    def _acc_batch_train(self, samples, labels):
+    def _acc_batch_train(self, samples: list, labels: list) -> float:
         """Processes a single accumulated batch of data."""
         total_loss = 0
 
