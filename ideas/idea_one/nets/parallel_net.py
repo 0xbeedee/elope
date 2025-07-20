@@ -4,8 +4,6 @@ from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 
-import numpy as np
-
 
 class ParallelNet(nn.Module):
     """A network processing the data stream in parallel, with a CNN subnet working with events, and a standard MLP working with the rest.
@@ -17,22 +15,43 @@ class ParallelNet(nn.Module):
         super().__init__()
         self.device = torch.device(nets_config["device"])
 
-        layers = []
-        in_dim = 1  # the number of input channels
-        for hidden_dim in nets_config["conv_dims"]:
-            layers.append(nn.Conv3d(in_dim, hidden_dim, kernel_size=3, padding=1))
-            layers.append(nn.SiLU())
-            layers.append(nn.MaxPool3d(kernel_size=2))
-            in_dim = hidden_dim  # update the input channels
-        # TODO the input dimension of this is not quite correct: through pooling, i reduce H and W (so both should be <200)!
-        layers.append(nn.AdaptiveAvgPool3d((nets_config["N_out_conv"], 200, 200)))
-        self.events_convnet = nn.Sequential(*layers).to(self.device)
-        self.events_fcnet = nn.Linear(
-            nets_config["N_out_conv"] * 200 * 200, nets_config["events_fc_out"]
+        # construct the nets for the event stack
+        Kc, s, p, d, Km = (
+            nets_config["conv_ker_size"],
+            nets_config["conv_stride"],
+            nets_config["conv_padding"],
+            nets_config["conv_dilation"],
+            nets_config["pool_ker_size"],
         )
 
+        layers = []
+        in_dim = 1  # the number of input channels
+        H, W = 200, 200  # initial height and width of the frames
+        for hidden_dim in nets_config["conv_dims"]:
+            layers.append(
+                nn.Conv3d(
+                    in_dim, hidden_dim, kernel_size=Kc, stride=s, padding=p, dilation=d
+                )
+            )
+            # adjust the height and width (ignore the depth because it varies)
+            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d)
+            H = (H + 2 * p - d * (Kc - 1) - 1 + s) // s
+            W = (W + 2 * p - d * (Kc - 1) - 1 + s) // s
+            layers.append(nn.SiLU())
+            layers.append(nn.MaxPool3d(kernel_size=Km))
+            # adjust the height and width (ignore the depth because it varies)
+            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html: the formula below is simpler because we use default values for padding and dilation)
+            H, W = H // Km, W // Km
+            in_dim = hidden_dim  # update the input channels
+        layers.append(nn.AdaptiveAvgPool3d((nets_config["N_out_conv"], H, W)))
+        self.events_convnet = nn.Sequential(*layers).to(self.device)
+        self.events_fcnet = nn.Linear(
+            in_dim * nets_config["N_out_conv"] * H * W, nets_config["events_fc_out"]
+        )
+
+        # construct the net for the trajectory data
         layers.clear()
-        in_dim = 1
+        in_dim = 6  # phi, theta, psi, p, q, r (xs and vs are labels)
         for hidden_dim in nets_config["traj_dims"]:
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
@@ -40,14 +59,27 @@ class ParallelNet(nn.Module):
         layers.append(nn.Linear(in_dim, nets_config["traj_out"]))
         self.traj_net = nn.Sequential(*layers).to(self.device)
 
-        # TODO finish the GRU net for the rangemeter
-        # self.rangemeter_gru = nn.GRU(1, 16, batch_first=True, device=self.device)
-        # self.rangemeter_fc = nn.Sequential(
-        #     nn.GRU(1, 16, batch_first=True), nn.ReLU(), nn.Linear(), nn.ReLU()
-        # ).to(self.device)
-
+        # construct the net for the rangemeter data
         layers.clear()
-        in_dim = nets_config["events_fc_out"] + nets_config["traj_out"]
+        in_dim = 1  # each rangemeter reading is a scalar value
+        self.rangemeter_gru = nn.GRU(
+            in_dim, nets_config["range_gru_hdim"], batch_first=True, device=self.device
+        )
+        in_dim = nets_config["range_gru_hdim"]
+        for hidden_dim in nets_config["range_dims"]:
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            in_dim = hidden_dim
+        layers.append(nn.Linear(in_dim, nets_config["range_out"]))
+        self.rangemeter_fcnet = nn.Sequential(*layers).to(self.device)
+
+        # construct the final net
+        layers.clear()
+        in_dim = (
+            nets_config["events_fc_out"]
+            + nets_config["traj_out"]
+            + nets_config["range_out"]
+        )
         for hidden_dim in nets_config["traj_dims"]:
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
@@ -55,15 +87,27 @@ class ParallelNet(nn.Module):
         layers.append(nn.Linear(in_dim, nets_config["final_out"]))
         self.final_net = nn.Sequential(*layers).to(self.device)
 
-    def forward(self, inputs: Dict[str, np.ndarray]) -> torch.Tensor:
-        events_out = self.events_convnet(inputs["event_stack"])
-        # flatten the outputs before feedin them to the FC part
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        # get output from the event nets
+        # unsqueeze to have a (B, in_ch, D, H, W) tensor
+        events_out = self.events_convnet(inputs["event_stack"].unsqueeze(1))
+        # flatten the outputs before feeding them to the FC part
+        # TODO flattening gives me REALLY high dimensional tensors, might need a smarter way to handle this... (also, reduction from it to the output of the FNN is too drastic)
         events_out = events_out.view(events_out.size(0), -1)
         events_out = self.events_fcnet(events_out)
 
+        # get output from the traj net
         traj_out = self.traj_net(inputs["trajectory"])
-        # rangemeter_out = self.reals_net(inputs["rangemeter"])
 
+        # get output from the rangemeter nets
+        # unsqueeze to have a (B, seq_len, in_dim) tensor
+        _, h_n = self.rangemeter_gru(inputs["rangemeter"].unsqueeze(-1))
+        # use the output of the last GRU layer
+        rangemeter_out = self.rangemeter_fcnet(h_n[-1])
+
+        # get final output by concatenating the previous outputs
         # TODO there might be smarter way to combine these inputs
-        final_out = self.final_net(torch.concat(events_out, traj_out), dim=1)
+        final_out = self.final_net(
+            torch.concat((events_out, traj_out, rangemeter_out), dim=1)
+        )
         return final_out
