@@ -50,12 +50,12 @@ def _process_single_file_streaming(fpath: str, out_file: str) -> None:
             # (phi, theta, psi and p, q, r are for training)
             X_i.create_dataset(f"trajectory", data=traj_data[i, 6:], compression="gzip")
             # assign rangemeter data
-            slice = _get_rangemeter_slice_(
+            slice, start_rm_idx = _get_rangemeter_slice_(
                 i, start_rm_idx, len(traj_data), len(rangemeter_data)
             )
             X_i.create_dataset(
                 f"rangemeter",
-                data=rangemeter_data[slice],
+                data=rangemeter_data[slice][:, 1],  # ignore the timestamps
                 compression="gzip",
             )
 
@@ -121,7 +121,7 @@ def _get_rangemeter_slice_(
 
     The final underscore indicates that this function modifies `start_rm_idx`.
     """
-    # rangemeter data must be funer than trajectory data (need >=12s of data)
+    # rangemeter data must be finer than trajectory data (need >=12s of data)
     assert rangemeter_len > traj_len
 
     # max number of rangemeter datapoints for one traj datapoint
@@ -137,4 +137,4 @@ def _get_rangemeter_slice_(
     # update the starting rangemeter index
     start_rm_idx = end_idx
 
-    return slice(start_idx, end_idx)
+    return slice(start_idx, end_idx), start_rm_idx
