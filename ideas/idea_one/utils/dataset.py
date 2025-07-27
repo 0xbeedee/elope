@@ -29,7 +29,13 @@ class EventsTrajDataset(IterableDataset):
         if self.seed:
             random.seed(self.seed)
 
-        for fname in os.listdir(self.preprocessed_path):
+        file_list = os.listdir(self.preprocessed_path)
+        if self.shuffle:
+            # shuffle the file list, if desired
+            # (shuffling the single datapoints is inadvisable: their temporal sequence is important!)
+            random.shuffle(file_list)
+
+        for fname in file_list:
             if not fname.endswith(".h5"):
                 # ignore all non-h5py files
                 continue
@@ -39,12 +45,7 @@ class EventsTrajDataset(IterableDataset):
                 X_group = f["X"]  # data
                 y_group = f["y"]  # labels
 
-                indices = list(X_group.keys())
-                if self.shuffle:
-                    random.shuffle(indices)
-                else:
-                    indices.sort(key=int)
-
+                indices = sorted(list(X_group.keys()))
                 for i in indices:
                     X_i = X_group[i]
                     event_stack = X_i["event_stack"][:]
