@@ -1,8 +1,17 @@
 idea_name: "one"
 
 global:
-  optim_lr: 0.001 # learning rate for the optimiser
-  acc_steps: 8 # accumulation steps (i.e., batch size)
+  # the number of epochs to train for
+  n_epochs: 10
+  # the optimiser to use for the net
+  optimiser: "adam"
+  # learning rate for the optimiser
+  optim_lr: 0.001 
+  # the loss function to use
+  loss: "mse"
+
+  # the accumulation steps (i.e., batch size)
+  acc_steps: 8 
 
 nets:
   device: "cpu"
@@ -37,7 +46,7 @@ nets:
   range_out: 32
 
   # the hidden dims of the final FC network
-  final_dims: [64, 92, 64]
+  final_dims: [64, 64, 32]
   # the output dimension of the FC final net
-  final_out: 128
+  final_out: 6
 
