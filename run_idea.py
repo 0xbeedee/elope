@@ -3,6 +3,7 @@ from omegaconf import DictConfig
 
 from ideas.idea_one.idea import IdeaOne
 
+# dict for mapping idea names to the correct classes
 IDEA_MAP = {
     "one": IdeaOne,
 }
