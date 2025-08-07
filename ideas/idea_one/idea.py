@@ -46,12 +46,13 @@ class IdeaOne(Idea):
         #     self.train_data_path, split="val", shuffle=True
         # )
         train_dataset = EventsTrajDataset(
-            self.train_data_path, split="train", val_ratio=0.9, shuffle=True
+            self.train_data_path, split="train", val_ratio=0.95, shuffle=True
         )
         # set batch_size to 1 because event stacks have variable lengths
         train_loader = DataLoader(train_dataset, batch_size=1)
 
         writer = SummaryWriter()
+
         epoch_loss, res_epoch_loss = 0.0, 0.0
         for epoch in range(self.n_epochs):
             with tqdm(
@@ -59,11 +60,13 @@ class IdeaOne(Idea):
                 desc=f"\t[+] Epoch {epoch + 1}/{self.n_epochs}",
                 unit="batch",
             ) as tqdm_ctxt:
-                acc_loss, res_acc_loss = self._one_epoch_train_(tqdm_ctxt)
+                acc_loss, res_acc_loss, total_samples = self._one_epoch_train_(
+                    tqdm_ctxt
+                )
                 epoch_loss += acc_loss
                 res_epoch_loss += res_acc_loss if res_acc_loss else 0
 
-            avg_loss = epoch_loss / len(train_loader)
+            avg_loss = epoch_loss / total_samples
             writer.add_scalar("Loss/train", avg_loss, epoch)
             print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
 
@@ -78,12 +81,16 @@ class IdeaOne(Idea):
 
         The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
         """
+        total_samples = 0
         acc_samples, acc_labels = [], []
         for X_batch, y_batch in tqdm_ctxt:
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == self.conf["acc_steps"]:
+                # TODO this takes a long time => lambda and/or simplify architecture (bottle neck is the conv part)
                 acc_loss = self._acc_batch_train(acc_samples, acc_labels)
+                # calculate total samples this way because iterable datasets do not have a __len__
+                total_samples += len(acc_samples)
                 acc_samples.clear()
                 acc_labels.clear()
 
@@ -92,7 +99,7 @@ class IdeaOne(Idea):
             res_acc_loss = self._acc_batch_train(acc_samples, acc_labels)
         tqdm_ctxt.set_postfix({"loss": acc_loss, "res_los": res_acc_loss})
 
-        return acc_loss, res_acc_loss
+        return acc_loss, res_acc_loss, total_samples
 
     def _acc_batch_train(self, samples: list, labels: list) -> float:
         """Processes a single accumulated batch of data."""
