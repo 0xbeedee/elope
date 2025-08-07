@@ -10,7 +10,14 @@ class EventsTrajDataset(IterableDataset):
     """An iterable dataset containing events and trajectory data to be wrapped in a torch DataLoader."""
 
     def __init__(
-        self, data_path: str, shuffle=False, seed=None, transform=None
+        self,
+        data_path: str,
+        *,
+        split="train",
+        val_ratio=0.2,
+        shuffle=False,
+        seed=None,
+        transform=None
     ) -> None:
         super().__init__()
 
@@ -20,22 +27,30 @@ class EventsTrajDataset(IterableDataset):
             self.preprocessed_path
         ), "[!] Preprocessed data does not exist"
 
+        file_list = os.listdir(self.preprocessed_path)
+        if "test" in self.preprocessed_path:
+            # do not split the test dataset
+            self.file_list = file_list
+        else:
+            split_idx = int(len(file_list) * (1 - val_ratio))
+            # split the dataset by file to maintain internal consistency
+            if split == "train":
+                self.file_list = file_list[:split_idx]
+            else:
+                self.file_list = file_list[split_idx:]
+
+        if seed:
+            random.seed(seed)
+
         # because we only implement __iter__, we need to shuffle manually (instead of relying on DataLoader's shuffle)
-        self.shuffle = shuffle
-        self.seed = seed
+        if shuffle:
+            # (shuffling the single datapoints is inadvisable: their temporal sequence is important!)
+            random.shuffle(self.file_list)
+
         self.transform = transform
 
     def __iter__(self):
-        if self.seed:
-            random.seed(self.seed)
-
-        file_list = os.listdir(self.preprocessed_path)
-        if self.shuffle:
-            # shuffle the file list, if desired
-            # (shuffling the single datapoints is inadvisable: their temporal sequence is important!)
-            random.shuffle(file_list)
-
-        for fname in file_list:
+        for fname in self.file_list:
             if not fname.endswith(".h5"):
                 # ignore all non-h5py files
                 continue

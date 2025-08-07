@@ -1,3 +1,4 @@
+from typing import Tuple
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -41,13 +42,18 @@ class IdeaOne(Idea):
         preprocess_data_streaming(self.test_data_path)
 
     def train_net(self) -> None:
-        train_dataset = EventsTrajDataset(self.train_data_path, shuffle=True)
+        # val_dataset = EventsTrajDataset(
+        #     self.train_data_path, split="val", shuffle=True
+        # )
+        train_dataset = EventsTrajDataset(
+            self.train_data_path, split="train", val_ratio=0.9, shuffle=True
+        )
         # set batch_size to 1 because event stacks have variable lengths
         train_loader = DataLoader(train_dataset, batch_size=1)
 
         writer = SummaryWriter()
+        epoch_loss, res_epoch_loss = 0.0, 0.0
         for epoch in range(self.n_epochs):
-            epoch_loss, res_epoch_loss = 0, 0
             with tqdm(
                 train_loader,
                 desc=f"\t[+] Epoch {epoch + 1}/{self.n_epochs}",
@@ -62,11 +68,12 @@ class IdeaOne(Idea):
             print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
 
     def run(self) -> None:
+        # TODO test that no splitting is happening here
         test_dataset = EventsTrajDataset(self.test_data_path)
         # TODO save output in desired JSON format
         pass
 
-    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> None:
+    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
         """Trains the network for a single epoch (i.e., a single pass over all the trianing data).
 
         The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
@@ -93,7 +100,8 @@ class IdeaOne(Idea):
 
         self.optimizer.zero_grad()
         for sample, label in zip(samples, labels):
-            # have the network handle single sample to both preserve temporal and spatial semantics
+            # handles single samples to preserve temporal and spatial semantics
+            # (inefficient, but the alternative approaches are not convincing)
             pred = self.p_net(sample)
             loss = self.criterion(pred, label)
             loss.backward()
