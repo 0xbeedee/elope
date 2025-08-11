@@ -1,3 +1,4 @@
+from typing import Dict, List
 from abc import ABC, abstractmethod
 from omegaconf import DictConfig
 import os
@@ -16,12 +17,12 @@ class Idea(ABC):
 
     @abstractmethod
     def preprocess_data(self) -> None:
-        pass
+        """Preprocesses the training and test data."""
 
     @abstractmethod
-    def train_net(self) -> None:
-        pass
+    def train_model(self) -> None:
+        """Trains the model."""
 
     @abstractmethod
-    def run(self) -> None:
-        pass
+    def run_model(self) -> Dict[int, Dict[str, List[float]]]:
+        """Runs the model on the test data."""

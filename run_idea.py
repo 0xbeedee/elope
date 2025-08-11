@@ -23,19 +23,22 @@ def main(cfg: DictConfig) -> None:
             f"[!] Idea name not recognised. Available names are: {list(IDEA_MAP.keys())}"
         )
 
+    # preprocess the data
     idea = IDEA_MAP[idea_name](config=cfg.ideas)
     print(
         f"[+] {idea.__class__.__name__}: Preprocessing the trainining and the test data..."
     )
     idea.preprocess_data()
 
-    # TODO what if other ideas do not involve training a neural net?
-    print(f"[+] {idea.__class__.__name__}: Training the neural net...")
-    idea.train_net()
+    # train the model
+    print(f"[+] {idea.__class__.__name__}: Training the model...")
+    idea.train_model()
 
-    print(f"[+] {idea.__class__.__name__}: Running the net on the test data...")
-    out_dict = idea.run()
+    # run the model
+    print(f"[+] {idea.__class__.__name__}: Running the model on the test data...")
+    out_dict = idea.run_model()
 
+    # save output to file
     out_file_path = os.path.join(
         HydraConfig.get().runtime.output_dir, "out_velocities.json"
     )

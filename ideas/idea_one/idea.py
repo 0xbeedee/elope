@@ -42,7 +42,7 @@ class IdeaOne(Idea):
         preprocess_data_streaming(self.train_data_path)
         preprocess_data_streaming(self.test_data_path)
 
-    def train_net(self) -> None:
+    def train_model(self) -> None:
         # val_dataset = EventsTrajDataset(
         #     self.train_data_path, split="val", shuffle=True
         # )
@@ -72,7 +72,7 @@ class IdeaOne(Idea):
             print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
 
     @torch.no_grad
-    def run(self) -> Dict[int, Dict[str, List[float]]]:
+    def run_model(self) -> Dict[int, Dict[str, List[float]]]:
         # do not shuffle the test set!
         test_dataset = EventsTrajDataset(self.test_data_path, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=1)
