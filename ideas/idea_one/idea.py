@@ -1,6 +1,7 @@
-from typing import Tuple
+from typing import Tuple, Dict, List
 from omegaconf import DictConfig
 from tqdm import tqdm
+import json
 
 from ideas.base import Idea
 from ideas.idea_one.nets.parallel_net import ParallelNet
@@ -70,11 +71,39 @@ class IdeaOne(Idea):
             writer.add_scalar("Loss/train", avg_loss, epoch)
             print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
 
-    def run(self) -> None:
-        # TODO test that no splitting is happening here
-        test_dataset = EventsTrajDataset(self.test_data_path)
-        # TODO save output in desired JSON format
-        pass
+    @torch.no_grad
+    def run(self) -> Dict[int, Dict[str, List[float]]]:
+        # do not shuffle the test set!
+        test_dataset = EventsTrajDataset(self.test_data_path, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=1)
+
+        # defaultdict would be nice, but it's annoying to JSON-serialise
+        out_dict = {}
+        # ignore the labels (which would be N/A anyhow)
+        i = 0
+        with tqdm(test_loader, unit="datapoint") as tqdm_ctxt:
+            for feats, _, fnum in test_loader:
+                tqdm_ctxt.set_description(f"\t[+] File {fnum.item()}, datapoint {i}")
+                self._fill_out_dict(out_dict, feats, fnum.item())
+                i += 1
+
+        return out_dict
+
+    def _fill_out_dict(
+        self,
+        data_dict: Dict[int, Dict[str, List[float]]],
+        feats: Dict[str, torch.Tensor],
+        fnum: int,
+    ):
+        """Fills the output dictionary incrementally, making sure it satisfies the output format specified on Kelvins (https://kelvins.esa.int/elope/submission-rules/)."""
+        preds = self.p_net(feats)  # [1, 6]
+        vs = preds[0][3:].tolist()  # [vx, vy, vz]
+        # xs = preds[0][:3].tolist()  # [x, y, z]
+
+        # ensure the dict structure exists
+        data = data_dict.setdefault(fnum, {k: [] for k in ("vx", "vy", "vz")})
+        for k, v in zip(("vx", "vy", "vz"), vs):
+            data[k].append(v)
 
     def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
         """Trains the network for a single epoch (i.e., a single pass over all the trianing data).
@@ -83,7 +112,8 @@ class IdeaOne(Idea):
         """
         total_samples = 0
         acc_samples, acc_labels = [], []
-        for X_batch, y_batch in tqdm_ctxt:
+        # ignore the file number during training
+        for X_batch, y_batch, _ in tqdm_ctxt:
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == self.conf["acc_steps"]:

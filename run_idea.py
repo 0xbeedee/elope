@@ -1,4 +1,8 @@
+import os
+import json
+
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
 from ideas.idea_one.idea import IdeaOne
@@ -9,6 +13,8 @@ IDEA_MAP = {
 }
 
 
+# TODO idea 2: try kalman filters
+# TODO idea 3: try mixing self-supervised methods and supervised ones for dimensionality reduction and improved performance
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     idea_name = cfg.ideas.idea_name
@@ -22,10 +28,24 @@ def main(cfg: DictConfig) -> None:
         f"[+] {idea.__class__.__name__}: Preprocessing the trainining and the test data..."
     )
     idea.preprocess_data()
+
     # TODO what if other ideas do not involve training a neural net?
     print(f"[+] {idea.__class__.__name__}: Training the neural net...")
     idea.train_net()
-    # idea.run()
+
+    print(f"[+] {idea.__class__.__name__}: Running the net on the test data...")
+    out_dict = idea.run()
+
+    out_file_path = os.path.join(
+        HydraConfig.get().runtime.output_dir, "out_velocities.json"
+    )
+    print(f"[+] {idea.__class__.__name__}: Saving the result to {out_file_path}...")
+    with open(out_file_path, "w") as f:
+        json.dump(out_dict, f)
+
+    print(
+        f"[+] {idea.__class__.__name__}: All done! Now you can upload your submission to Kelvins."
+    )
 
 
 if __name__ == "__main__":
