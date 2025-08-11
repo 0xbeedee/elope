@@ -42,7 +42,7 @@ def _process_single_file_streaming(fpath: str, out_file: str) -> None:
 
         start_rm_idx = 0
         for i, event_stack in enumerate(ev_gen):
-            # so that we can index into X, i.e., do X[i]
+            # to index into X
             X_i = X_group.create_group(f"{i}")
             # assign event data
             X_i.create_dataset(f"event_stack", data=event_stack, compression="gzip")
@@ -59,7 +59,7 @@ def _process_single_file_streaming(fpath: str, out_file: str) -> None:
                 compression="gzip",
             )
 
-            # so that we can index into y, i.e., do y[i]
+            # to index into y
             # (x, y, z and vx, vy, vz are for supervision)
             y_group.create_dataset(f"{i}", data=traj_data[i, :6], compression="gzip")
 
