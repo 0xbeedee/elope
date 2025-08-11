@@ -1,3 +1,5 @@
+from typing import Iterator, Dict, Tuple
+
 import os
 import h5py
 import random
@@ -44,13 +46,13 @@ class EventsTrajDataset(IterableDataset):
 
         # because we only implement __iter__, we need to shuffle manually (instead of relying on DataLoader's shuffle)
         if shuffle:
-            # (shuffling the single datapoints is inadvisable: their temporal sequence is important!)
+            # (do not shuffle the single datapoints to maintain the temporal sequence intact)
             random.shuffle(self.file_list)
 
         self.transform = transform
 
-    def __iter__(self):
-        for fname in self.file_list:
+    def __iter__(self) -> Iterator[Tuple[Dict[str, torch.Tensor], torch.Tensor, int]]:
+        for fname in self.file_list[:2]:
             if not fname.endswith(".h5"):
                 # ignore all non-h5py files
                 continue
@@ -60,7 +62,7 @@ class EventsTrajDataset(IterableDataset):
                 X_group = f["X"]  # data
                 y_group = f["y"]  # labels
 
-                indices = sorted(list(X_group.keys()))
+                indices = sorted(list(X_group.keys()), key=int)
                 for i in indices:
                     X_i = X_group[i]
                     event_stack = X_i["event_stack"][:]
@@ -79,4 +81,4 @@ class EventsTrajDataset(IterableDataset):
                     if self.transform:
                         features = self.transform(features)
 
-                    yield features, labels
+                    yield features, labels, int(fname[:-3])
