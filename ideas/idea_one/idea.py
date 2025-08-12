@@ -1,7 +1,7 @@
 from typing import Tuple, Dict, List
 from omegaconf import DictConfig
 from tqdm import tqdm
-import json
+import sys
 
 from ideas.base import Idea
 from ideas.idea_one.nets.parallel_net import ParallelNet
@@ -81,11 +81,13 @@ class IdeaOne(Idea):
         out_dict = {}
         # ignore the labels (which would be N/A anyhow)
         i = 0
-        with tqdm(test_loader, unit="datapoint") as tqdm_ctxt:
-            for feats, _, fnum in test_loader:
-                tqdm_ctxt.set_description(f"\t[+] File {fnum.item()}, datapoint {i}")
-                self._fill_out_dict(out_dict, feats, fnum.item())
-                i += 1
+        for feats, _, fnum in test_loader:
+            # write text to start of line, overwriting the previous one
+            sys.stdout.write("\r" + f"\t[+] File {fnum.item()}, datapoint {i}")
+            sys.stdout.flush()
+            self._fill_out_dict(out_dict, feats, fnum.item())
+            i += 1
+        sys.stdout.write("\n")
 
         return out_dict
 
