@@ -119,7 +119,6 @@ class IdeaOne(Idea):
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == self.conf["acc_steps"]:
-                # TODO this takes a long time => lambda and/or simplify architecture (bottle neck is the conv part)
                 acc_loss = self._acc_batch_train(acc_samples, acc_labels)
                 # calculate total samples this way because iterable datasets do not have a __len__
                 total_samples += len(acc_samples)
