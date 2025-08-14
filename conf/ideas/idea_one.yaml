@@ -27,9 +27,9 @@ nets:
   # the kernel size of the pooling layers
   pool_ker_size: 2
   # the desired number of frames in the stack, after passing the stack through the 3D convs
-  N_out_conv: 64
+  N_out_conv: 32
   # the hidden dims for each layer of the convnet 
-  conv_dims: [16, 32, 64]
+  conv_dims: [8, 16, 32]
   # the dimension of the output layer of the events FC net
   events_fc_out: 32
 
@@ -41,12 +41,12 @@ nets:
   # the hidden dim of the rangemeter net's GRU component
   range_gru_hdim: 16
   # the hidden dims for the rangemeter net
-  range_dims: [16, 32]
+  range_dims: [16, 24]
   # the output dimension of the rangemeter net
   range_out: 32
 
   # the hidden dims of the final FC network
-  final_dims: [64, 64, 32]
+  final_dims: [64, 32]
   # the output dimension of the FC final net
   final_out: 6
 
