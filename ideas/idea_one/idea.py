@@ -108,7 +108,7 @@ class IdeaOne(Idea):
             data[k].append(v)
 
     def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
-        """Trains the network for a single epoch (i.e., a single pass over all the trianing data).
+        """Trains the network for a single epoch (i.e., a single pass over all the training data).
 
         The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
         """
