@@ -28,7 +28,7 @@ class IdeaOne(Idea):
     This is a far easier task than predicting entire trajectories, and maximises data usage (because each transition becomes a data point, instead of a whole trajectory).
     """
 
-    def __init__(self, config: DictConfig):
+    def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
         self.p_net = ParallelNet(config["nets"])
 
