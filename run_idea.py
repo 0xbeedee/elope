@@ -6,15 +6,12 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
 from ideas.idea_one.idea import IdeaOne
+from ideas.idea_two.idea import IdeaTwo
 
 # dict for mapping idea names to the correct classes
-IDEA_MAP = {
-    "one": IdeaOne,
-}
+IDEA_MAP = {"one": IdeaOne, "two": IdeaTwo}
 
 
-# TODO idea 2: try kalman filters
-# TODO idea 3: try mixing self-supervised methods and supervised ones for dimensionality reduction and improved performance
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     idea_name = cfg.ideas.idea_name
