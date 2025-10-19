@@ -13,7 +13,7 @@ class ParallelNet(nn.Module):
 
     def __init__(self, nets_config: DictConfig):
         super().__init__()
-        self.device = torch.device(nets_config["device"])
+        device = torch.device(nets_config["device"])
 
         # construct the nets for the event stack
         Kc, s, p, d, Km = (
@@ -45,8 +45,8 @@ class ParallelNet(nn.Module):
             in_dim = hidden_dim  # update the input channels
         # (1, 1, 1) to perform global average pooling
         layers.append(nn.AdaptiveAvgPool3d((1, 1, 1)))
-        self.events_convnet = nn.Sequential(*layers).to(self.device)
-        self.events_fcnet = nn.Linear(in_dim, nets_config["events_fc_out"])
+        self.events_convnet = nn.Sequential(*layers).to(device)
+        self.events_fcnet = nn.Linear(in_dim, nets_config["events_fc_out"]).to(device)
 
         # construct the net for the trajectory data
         layers.clear()
@@ -56,13 +56,13 @@ class ParallelNet(nn.Module):
             layers.append(nn.ReLU())
             in_dim = hidden_dim
         layers.append(nn.Linear(in_dim, nets_config["traj_out"]))
-        self.traj_net = nn.Sequential(*layers).to(self.device)
+        self.traj_net = nn.Sequential(*layers).to(device)
 
         # construct the net for the rangemeter data
         layers.clear()
         in_dim = 1  # each rangemeter reading is a scalar value
         self.rangemeter_gru = nn.GRU(
-            in_dim, nets_config["range_gru_hdim"], batch_first=True, device=self.device
+            in_dim, nets_config["range_gru_hdim"], batch_first=True, device=device
         )
         in_dim = nets_config["range_gru_hdim"]
         for hidden_dim in nets_config["range_dims"]:
@@ -70,7 +70,7 @@ class ParallelNet(nn.Module):
             layers.append(nn.ReLU())
             in_dim = hidden_dim
         layers.append(nn.Linear(in_dim, nets_config["range_out"]))
-        self.rangemeter_fcnet = nn.Sequential(*layers).to(self.device)
+        self.rangemeter_fcnet = nn.Sequential(*layers).to(device)
 
         # construct the final net
         layers.clear()
@@ -84,7 +84,7 @@ class ParallelNet(nn.Module):
             layers.append(nn.ReLU())
             in_dim = hidden_dim
         layers.append(nn.Linear(in_dim, nets_config["final_out"]))
-        self.final_net = nn.Sequential(*layers).to(self.device)
+        self.final_net = nn.Sequential(*layers).to(device)
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         # get output from the event nets
