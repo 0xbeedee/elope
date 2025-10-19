@@ -13,7 +13,24 @@ class EventstVAE(nn.Module):
 
     def __init__(self, nets_config: DictConfig):
         super().__init__()
-        self.device = torch.device(nets_config["device"])
+        # movement to the device is handled internally through nets_config
+        self.encoder = EventsEncoder(nets_config)
+        self.decoder = EventsDecoder(
+            nets_config, self.encoder.final_H, self.encoder.final_W, self.conv_outdim
+        )
+
+    def forward(self, x):
+        z_mean, z_logvar, z = self.encoder(x)
+        reconstruction = self.decoder(z)
+        return z_mean, z_logvar, reconstruction
+
+
+class EventsEncoder(nn.Module):
+    """The encoder for the events t-VAE."""
+
+    def __init__(self, nets_config: DictConfig):
+        super().__init__()
+        device = torch.device(nets_config["device"])
 
         # construct the nets for the event stack
         Kc, s, p, d, Km = (
@@ -43,9 +60,16 @@ class EventstVAE(nn.Module):
             # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html: the formula below is simpler because we use default values for padding and dilation)
             H, W = H // Km, W // Km
             in_dim = hidden_dim  # update the input channels
-        self.events_convnet = nn.Sequential(*layers).to(self.device)
+        self.events_convnet = nn.Sequential(*layers).to(device)
 
-        self.events_fcnet = nn.Linear(in_dim * H * W, nets_config["events_fc_out"])
+        self.final_H, self.final_W, self.conv_outdim = (
+            H,
+            W,
+            in_dim,
+        )  # useful for the decoder
+        self.events_fcnet = nn.Linear(in_dim * H * W, nets_config["events_fc_out"]).to(
+            device
+        )
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         # get output from the event nets
@@ -55,4 +79,66 @@ class EventstVAE(nn.Module):
         events_out = torch.flatten(events_out, start_dim=1)
         events_out = self.events_fcnet(events_out)
 
+        return events_out
+
+
+class EventsDecoder(nn.Module):
+    """The decoder for the events t-VAE."""
+
+    # TODO
+
+    def __init__(self, nets_config: DictConfig, initial_H, initial_W, initial_indim):
+        super().__init__()
+        device = torch.device(nets_config["device"])
+
+        # construct the nets for the event stack
+        Kc, s, p, d, Km = (
+            nets_config["conv_ker_size"],
+            nets_config["conv_stride"],
+            nets_config["conv_padding"],
+            nets_config["conv_dilation"],
+            nets_config["pool_ker_size"],
+        )
+
+        # invert final FC layer
+        self.d_fcnet = nn.Linear(
+            nets_config["events_fc_out"], initial_indim * initial_H * initial_W
+        ).to(device)
+
+        layers = []
+        in_dim = initial_indim  # the number of input channels (from the encoder)
+        H, W = (
+            initial_H,
+            initial_W,
+        )  # initial height and width of the frames (from the encoder)
+        # ==============================
+        # TODO THIS INVERSE PASS THROUGH THE CONVNET NEEDS TO BE CHECKED!
+        # ==============================
+        for hidden_dim in reversed(nets_config["conv_dims"]):
+            layers.append(nn.MaxPool2d(kernel_size=Km))
+            # adjust the height and width (ignore the depth because it varies)
+            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxUnpool2d.html)
+            H, W = (
+                H // Km,
+                W // Km,
+            )  # TODO i shouldn't simplify this formula => it's not generic! adjust in idea_one as well
+            layers.append(nn.SiLU())
+            layers.append(
+                nn.Conv2d(
+                    in_dim, hidden_dim, kernel_size=Kc, stride=s, padding=p, dilation=d
+                )
+            )
+            # adjust the height and width (ignore the depth because it varies)
+            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html)
+            H = (H + 2 * p - d * (Kc - 1) - 1 + s) // s
+            W = (W + 2 * p - d * (Kc - 1) - 1 + s) // s
+            in_dim = hidden_dim  # update the input channels
+        # invert convolutional layers
+        self.d_convnet = nn.Sequential(*layers).to(device)
+
+    def forward(self, z) -> torch.Tensor:
+        z = self.d_fcnet(z)
+        # unflatten to have a (B, final_in_ch, final_H, final_W) tensor
+        z = z.view(-1, self.initial_indim, self.initial_H, self.initial_W)
+        events_out = self.d_convnet(z)
         return events_out
