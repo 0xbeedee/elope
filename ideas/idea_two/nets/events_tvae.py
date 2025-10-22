@@ -20,9 +20,9 @@ class EventstVAE(nn.Module):
         )
 
     def forward(self, x):
-        z_mean, z_logvar, z = self.encoder(x)
+        z, z_mean, z_logvar = self.encoder(x)
         reconstruction = self.decoder(z)
-        return z_mean, z_logvar, reconstruction
+        return reconstruction, z_mean, z_logvar
 
 
 class EventsEncoder(nn.Module):
@@ -67,19 +67,29 @@ class EventsEncoder(nn.Module):
             W,
             in_dim,
         )  # useful for the decoder
-        self.events_fcnet = nn.Linear(in_dim * H * W, nets_config["events_fc_out"]).to(
-            device
-        )
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        # use same sizes for both nets for convenience
+        self.events_fcnet_mu = nn.Linear(
+            in_dim * H * W, nets_config["events_fc_out"]
+        ).to(device)
+        self.events_fcnet_logsigma = nn.Linear(
+            in_dim * H * W, nets_config["events_fc_out"]
+        ).to(device)
+
+        self.sampling = Sampling()
+
+    def forward(
+        self, inputs: Dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # get output from the event nets
         # unsqueeze to have a (B, in_ch, H, W) tensor
         events_out = self.events_convnet(inputs["event_stack"].unsqueeze(1))
 
-        events_out = torch.flatten(events_out, start_dim=1)
-        events_out = self.events_fcnet(events_out)
+        z_mean = self.events_fcnet_mu(events_out)
+        z_logvar = self.events_fcnet_logsigma(events_out)
+        z = self.sampling(z_mean, z_logvar)
 
-        return events_out
+        return z, z_mean, z_logvar
 
 
 class EventsDecoder(nn.Module):
@@ -142,3 +152,15 @@ class EventsDecoder(nn.Module):
         z = z.view(-1, self.initial_indim, self.initial_H, self.initial_W)
         events_out = self.d_convnet(z)
         return events_out
+
+
+class Sampling(nn.Module):
+    """Sample from the latent space using the reparametrisation trick."""
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, z_mean, z_logvar):
+        batch, dim = z_mean.shape
+        eps = torch.randn_like(z_mean)
+        return z_mean + torch.exp(0.5 * z_logvar) * eps
