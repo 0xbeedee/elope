@@ -1,4 +1,5 @@
 from typing import Dict
+from typing_extensions import final
 from omegaconf import DictConfig
 
 import torch
@@ -19,7 +20,7 @@ class NetManager(nn.Module):
         super().__init__()
         self.device = torch.device(nets_config["device"])
 
-        self.events_net = EventstVAE(nets_config["events"])
+        self.events_vae = EventstVAE(nets_config["events"])
         self.traj_net = TrajNet(nets_config["traj"])
         self.rangemeter_net = RangemeterGRU(nets_config["range"])
 
@@ -37,26 +38,13 @@ class NetManager(nn.Module):
         layers.append(nn.Linear(in_dim, nets_config["final_out"]))
         self.final_net = nn.Sequential(*layers).to(self.device)
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
-        # get output from the event nets
-        # unsqueeze to have a (B, in_ch, D, H, W) tensor
-        events_out = self.events_convnet(inputs["event_stack"].unsqueeze(1))
-        # flatten the outputs before feeding them to the FC part
-        events_out = events_out.view(events_out.size(0), -1)
-        events_out = self.events_fcnet(events_out)
-
-        # get output from the traj net
-        traj_out = self.traj_net(inputs["trajectory"])
-
-        # get output from the rangemeter nets
-        # unsqueeze to have a (B, seq_len, in_dim) tensor
-        _, h_n = self.rangemeter_gru(inputs["rangemeter"].unsqueeze(-1))
-        # use the output of the last GRU layer
-        rangemeter_out = self.rangemeter_fcnet(h_n[-1])
-
-        # get final output by concatenating the previous outputs
-        # TODO there might be smarter way to combine these inputs
-        final_out = self.final_net(
-            torch.concat((events_out, traj_out, rangemeter_out), dim=1)
-        )
+    def forward(
+        self, inputs: Dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        recon, z, z_mean, z_logvar = self.events_vae(inputs["event_stack"].unsqueeze(1))
+        traj_out = self.traj_net(z)
+        _, h_n = self.rangemeter_net(z)
+        rangemeter_out = self.rangemeter_net(h_n[-1])
+        # TODO might be smarter way to combine the outputs
+        final_out = self.final_net(torch.concat((z, traj_out, rangemeter_out), dim=1))
         return final_out

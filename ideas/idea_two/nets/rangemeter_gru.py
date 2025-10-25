@@ -12,7 +12,8 @@ class RangemeterGRU(nn.Module):
         self.device = torch.device(nets_config["device"])
 
         layers = []
-        in_dim = 1  # each rangemeter reading is a scalar value
+        # the latent dimension from the events VAE + the scalar value from the rangemeter
+        in_dim = nets_config["events_fc_out"] + 1
         self.rangemeter_gru = nn.GRU(
             in_dim, nets_config["range_gru_hdim"], batch_first=True, device=self.device
         )

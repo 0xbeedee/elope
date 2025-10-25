@@ -15,7 +15,8 @@ class TrajNet(nn.Module):
         self.device = torch.device(nets_config["device"])
 
         layers = []
-        in_dim = 6  # phi, theta, psi, p, q, r (xs and vs are labels)
+        # the latent dime from the events VAE + phi, theta, psi, p, q, r
+        in_dim = nets_config["events_fc_out"] + 6
         for hidden_dim in nets_config["traj_dims"]:
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
