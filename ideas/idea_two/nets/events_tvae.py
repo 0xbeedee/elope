@@ -22,7 +22,8 @@ class EventstVAE(nn.Module):
     def forward(self, x):
         z, z_mean, z_logvar = self.encoder(x)
         reconstruction = self.decoder(z)
-        return reconstruction, z_mean, z_logvar
+        # return the latent as well, to pass it to the other nets
+        return reconstruction, z, z_mean, z_logvar
 
 
 class EventsEncoder(nn.Module):
@@ -76,8 +77,6 @@ class EventsEncoder(nn.Module):
             in_dim * H * W, nets_config["events_fc_out"]
         ).to(device)
 
-        self.sampling = Sampling()
-
     def forward(
         self, inputs: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -87,9 +86,17 @@ class EventsEncoder(nn.Module):
 
         z_mean = self.events_fcnet_mu(events_out)
         z_logvar = self.events_fcnet_logsigma(events_out)
-        z = self.sampling(z_mean, z_logvar)
+        z = self._reparametrise(z_mean, z_logvar)
 
         return z, z_mean, z_logvar
+
+    def _reparametrise(
+        self, z_mean: torch.Tensor, z_logvar: torch.Tensor
+    ) -> torch.Tensor:
+        """Sample from the latent space using the reparametrisation trick."""
+        batch, dim = z_mean.shape
+        eps = torch.randn_like(z_mean)
+        return z_mean + torch.exp(0.5 * z_logvar) * eps
 
 
 class EventsDecoder(nn.Module):
@@ -152,15 +159,3 @@ class EventsDecoder(nn.Module):
         z = z.view(-1, self.initial_indim, self.initial_H, self.initial_W)
         events_out = self.d_convnet(z)
         return events_out
-
-
-class Sampling(nn.Module):
-    """Sample from the latent space using the reparametrisation trick."""
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, z_mean, z_logvar):
-        batch, dim = z_mean.shape
-        eps = torch.randn_like(z_mean)
-        return z_mean + torch.exp(0.5 * z_logvar) * eps
