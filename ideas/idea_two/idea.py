@@ -5,16 +5,25 @@ from ideas.idea_one.idea import IdeaOne
 from ideas.idea_two.nets import NetManager
 
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
-
 
 # dict for mapping optimiser names to the correct classes
 OPTIM_MAP = {
     "adam": torch.optim.Adam,
 }
 
+
+def vae_loss(recon_x, x, mu, logvar, beta=1.0):
+    # use cross_entropy because we have three classes for the events data (-1, 0, 1)
+    ce_loss = F.cross_entropy(recon_x, x, reduction="sum")
+    kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return ce_loss + beta * kld_loss
+
+
 # dict for mapping loss names to the correct classes
 LOSS_MAP = {
+    "vae": vae_loss,
     "ce": torch.nn.CrossEntropyLoss,
     "mse": torch.nn.MSELoss,
 }
@@ -32,8 +41,9 @@ class IdeaTwo(IdeaOne):
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
             self.p_net.parameters(), lr=self.conf["optim_lr"]
         )
-        # TODO at least three criteria should be here: one for the events, one for the rangemeter, one for the final supervised pipeline
-        self.criteria = LOSS_MAP[self.conf["loss"]]()
+        self.criteria = [
+            LOSS_MAP[loss]() for loss in self.conf["loss"]
+        ]  # TODO config should contain the list of losses (at least 3)
 
     def train_model(self) -> None:
         return super().train_model()
