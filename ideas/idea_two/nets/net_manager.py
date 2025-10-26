@@ -1,5 +1,4 @@
 from typing import Dict
-from typing_extensions import final
 from omegaconf import DictConfig
 
 import torch
@@ -26,11 +25,8 @@ class NetManager(nn.Module):
 
         # construct the final net
         layers = []
-        in_dim = (
-            nets_config["events_fc_out"]
-            + nets_config["traj_out"]
-            + nets_config["range_out"]
-        )
+        # ignore the events, because the tVAE is trained separately
+        in_dim = nets_config["traj_out"] + nets_config["range_out"]
         for hidden_dim in nets_config["traj_dims"]:
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
@@ -41,10 +37,11 @@ class NetManager(nn.Module):
     def forward(
         self, inputs: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        recon, z, z_mean, z_logvar = self.events_vae(inputs["event_stack"].unsqueeze(1))
+        with torch.no_grad():
+            _, z, _ = self.events_vae(inputs["event_stack"].unsqueeze(1))
         traj_out = self.traj_net(z)
         _, h_n = self.rangemeter_net(z)
         rangemeter_out = self.rangemeter_net(h_n[-1])
-        # TODO might be smarter way to combine the outputs
-        final_out = self.final_net(torch.concat((z, traj_out, rangemeter_out), dim=1))
+
+        final_out = self.final_net(torch.concat((traj_out, rangemeter_out), dim=1))
         return final_out

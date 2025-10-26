@@ -41,9 +41,9 @@ class IdeaTwo(IdeaOne):
             self.p_net.parameters(), lr=self.conf["optim_lr"]
         )
         self.criteria = [LOSS_MAP[loss]() for loss in self.conf["loss"]]
-        assert len(self.criteria) >= 3, (
-            "[!] Need at least three losses (one for the VAE, one for the trajectory net, and one for the rangemeter net)."
-        )
+        assert len(self.criteria) >= 2, (
+            "[!] Need at least two losses (one for the VAE, and one for the trajectory and rangemeter nets)."
+        )  # range_net and traj_net get the same loss because they both predict real values
 
     def train_model(self) -> None:
         return super().train_model()
@@ -73,17 +73,39 @@ class IdeaTwo(IdeaOne):
     ) -> float:
         """Trains the various network in an alternating fashion.
 
-        We train the events tVAE and the rangemeter tVAE first (in parallel), then we use the latent
+        We train the events tVAE first, then train the two remaining networks in parallel.
         """
         total_loss = 0
 
-        # TODO train nets as on the paper notes => what do i pass to the traj net? why not pass the step-wise latents from events and rangemeter to an RNN, and pass that to the trajnet? like i already to for the rangemeter
+        self._train_events(Xs)
+
+        # train the traj net and rangemeter net at the same time
         self.optimizer.zero_grad()
         for X, y in zip(Xs, ys):
             # handles single samples to preserve temporal and spatial semantics
             # (inefficient, but the alternative approaches are not convincing)
             pred = self.net_manager(X)
             loss = self.criterion(pred, y)
+            loss.backward()
+            total_loss += loss.item()
+        self.optimizer.step()
+
+        # mean-reduce the loss
+        return total_loss / len(Xs)
+
+    def _train_events(self, Xs: Dict[str, torch.Tensor]) -> float:
+        """Trains the events tVAE.
+
+        We train the events tVAE before the other networks because the latter use the tVAE latents.
+        """
+        total_loss = 0
+
+        self.optimizer.zero_grad()
+        for X in Xs:
+            # handles single samples to preserve temporal and spatial semantics
+            # (inefficient, but the alternative approaches are not convincing)
+            recon, _, z_mean, z_logvar = self.net_manager.events_vae(X)
+            loss = self.criteria[0](recon, Xs, z_mean, z_logvar)
             loss.backward()
             total_loss += loss.item()
         self.optimizer.step()

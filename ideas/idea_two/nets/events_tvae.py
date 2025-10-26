@@ -11,6 +11,8 @@ class EventstVAE(nn.Module):
     Temporal in the sense that we do not use the VAE to reconstruct the DVS matrix at time t, but the DVA metrix at time t + 1 (given its state at time t), i.e., we force our latents to include temporal information.
     """
 
+    # TODO currently, the VAE predicts the events at time t! should predict the events at time t+1, as in the docstring above
+
     def __init__(self, nets_config: DictConfig):
         super().__init__()
         # movement to the device is handled internally through nets_config
