@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, List
+from typing import Dict, List
 from omegaconf import DictConfig
 
 from ideas.idea_one.idea import IdeaOne
@@ -6,7 +6,6 @@ from ideas.idea_two.nets import NetManager
 
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 
 # dict for mapping optimiser names to the correct classes
 OPTIM_MAP = {
@@ -52,36 +51,24 @@ class IdeaTwo(IdeaOne):
     def run_model(self) -> Dict[int, Dict[str, List[float]]]:
         return super().run_model()
 
-    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
-        """Trains the network ensemble for a single epoch (i.e., a single pass over all the training data).
+    def _acc_batch_train(self, samples: list, labels: list) -> float:
+        """Processes a single accumulated batch of data."""
+        # _one_epoch_train_ is the same as the one for IdeaOne
+        acc_loss = self._train_alternating(samples, labels)
+        return acc_loss
 
-        The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
-        """
-        total_samples = 0
-        # ignore the file number during training
-        for X_batch, y_batch, _ in tqdm_ctxt:
-            acc_loss = self._train_alternating(X_batch, y_batch)
-            # calculate total samples this way because iterable datasets do not have a __len__
-            total_samples += len(y_batch)
-        tqdm_ctxt.set_postfix({"loss": acc_loss})
-
-        res_acc_loss = 0  # for API compatibility
-        return acc_loss, res_acc_loss, total_samples
-
-    def _train_alternating(
-        self, Xs: Dict[str, torch.Tensor], ys: torch.Tensor
-    ) -> float:
+    def _train_alternating(self, samples: list, labels: list) -> float:
         """Trains the various network in an alternating fashion.
 
         We train the events tVAE first, then train the two remaining networks in parallel.
         """
         total_loss = 0
 
-        self._train_events(Xs)
+        self._train_events(samples)
 
         # train the traj net and rangemeter net at the same time
         self.optimizer.zero_grad()
-        for X, y in zip(Xs, ys):
+        for X, y in zip(samples, labels):
             # handles single samples to preserve temporal and spatial semantics
             # (inefficient, but the alternative approaches are not convincing)
             pred = self.net_manager(X)
@@ -91,9 +78,9 @@ class IdeaTwo(IdeaOne):
         self.optimizer.step()
 
         # mean-reduce the loss
-        return total_loss / len(Xs)
+        return total_loss / len(samples)
 
-    def _train_events(self, Xs: Dict[str, torch.Tensor]) -> float:
+    def _train_events(self, samples: list) -> float:
         """Trains the events tVAE.
 
         We train the events tVAE before the other networks because the latter use the tVAE latents.
@@ -101,14 +88,12 @@ class IdeaTwo(IdeaOne):
         total_loss = 0
 
         self.optimizer.zero_grad()
-        for X in Xs:
-            # handles single samples to preserve temporal and spatial semantics
-            # (inefficient, but the alternative approaches are not convincing)
+        for X in samples:
             recon, _, z_mean, z_logvar = self.net_manager.events_vae(X)
-            loss = self.criteria[0](recon, Xs, z_mean, z_logvar)
+            loss = self.criteria[0](recon, X, z_mean, z_logvar)
             loss.backward()
             total_loss += loss.item()
         self.optimizer.step()
 
         # mean-reduce the loss
-        return total_loss / len(Xs)
+        return total_loss / len(samples)
