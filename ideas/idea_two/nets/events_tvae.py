@@ -18,14 +18,17 @@ class EventstVAE(nn.Module):
         # movement to the device is handled internally through nets_config
         self.encoder = EventsEncoder(nets_config)
         self.decoder = EventsDecoder(
-            nets_config, self.encoder.final_H, self.encoder.final_W, self.conv_outdim
+            nets_config,
+            self.encoder.final_H,
+            self.encoder.final_W,
+            self.encoder.conv_outdim,
         )
 
-    def forward(self, x):
-        z, z_mean, z_logvar = self.encoder(x)
-        reconstruction = self.decoder(z)
+    def forward(self, inputs: Dict[str, torch.Tensor]):
+        z, z_mean, z_logvar = self.encoder(inputs)
+        recon_x = self.decoder(z)
         # return the latent as well, to pass it to the other nets
-        return reconstruction, z, z_mean, z_logvar
+        return recon_x, z, z_mean, z_logvar
 
 
 class EventsEncoder(nn.Module):
@@ -85,6 +88,7 @@ class EventsEncoder(nn.Module):
         # get output from the event nets
         # unsqueeze to have a (B, in_ch, H, W) tensor
         events_out = self.events_convnet(inputs["event_stack"].unsqueeze(1))
+        events_out = events_out.view(events_out.size(0), -1)  # flatten
 
         z_mean = self.events_fcnet_mu(events_out)
         z_logvar = self.events_fcnet_logsigma(events_out)
@@ -104,8 +108,6 @@ class EventsEncoder(nn.Module):
 class EventsDecoder(nn.Module):
     """The decoder for the events t-VAE."""
 
-    # TODO
-
     def __init__(self, nets_config: DictConfig, initial_H, initial_W, initial_indim):
         super().__init__()
         device = torch.device(nets_config["device"])
@@ -119,45 +121,48 @@ class EventsDecoder(nn.Module):
             nets_config["pool_ker_size"],
         )
 
+        # form the encoder
+        self.initial_H, self.initial_W, self.initial_indim = (
+            initial_H,
+            initial_W,
+            initial_indim,
+        )
+
         # invert final FC layer
         self.d_fcnet = nn.Linear(
-            nets_config["events_fc_out"], initial_indim * initial_H * initial_W
+            nets_config["events_fc_out"],
+            self.initial_indim * self.initial_H * self.initial_W,
         ).to(device)
 
         layers = []
-        in_dim = initial_indim  # the number of input channels (from the encoder)
-        H, W = (
-            initial_H,
-            initial_W,
-        )  # initial height and width of the frames (from the encoder)
-        # ==============================
-        # TODO THIS INVERSE PASS THROUGH THE CONVNET NEEDS TO BE CHECKED!
-        # ==============================
-        for hidden_dim in reversed(nets_config["conv_dims"]):
-            layers.append(nn.MaxPool2d(kernel_size=Km))
-            # adjust the height and width (ignore the depth because it varies)
-            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxUnpool2d.html)
-            H, W = (
-                H // Km,
-                W // Km,
-            )  # TODO i shouldn't simplify this formula => it's not generic! adjust in idea_one as well
-            layers.append(nn.SiLU())
+        in_dim = initial_indim  # the number of input channels
+        # invert convolutional layers
+        reversed_conv_dims = list(reversed(nets_config["conv_dims"]))
+        for i in range(len(reversed_conv_dims)):
+            out_dim = (
+                reversed_conv_dims[i + 1] if i + 1 < len(reversed_conv_dims) else 1
+            )
+            # TODO nn.Upsample() could also be used here
+            # avoid unpooling layers (https://github.com/L1aoXingyu/pytorch-beginner/blob/master/08-AutoEncoder/conv_autoencoder.py)
             layers.append(
-                nn.Conv2d(
-                    in_dim, hidden_dim, kernel_size=Kc, stride=s, padding=p, dilation=d
+                nn.ConvTranspose2d(
+                    in_dim,
+                    out_dim,
+                    kernel_size=Kc,
+                    stride=(s * Km),  # to acount for both conv stride and pooling
+                    padding=p,
+                    dilation=d,
+                    output_padding=(s * Km - 1),  # adjust based on encoder stride
                 )
             )
-            # adjust the height and width (ignore the depth because it varies)
-            # (from https://docs.pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html)
-            H = (H + 2 * p - d * (Kc - 1) - 1 + s) // s
-            W = (W + 2 * p - d * (Kc - 1) - 1 + s) // s
-            in_dim = hidden_dim  # update the input channels
-        # invert convolutional layers
+            if i < len(reversed_conv_dims) - 1:
+                layers.append(nn.SiLU())
+            in_dim = out_dim  # update the input channels
         self.d_convnet = nn.Sequential(*layers).to(device)
 
-    def forward(self, z) -> torch.Tensor:
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
         z = self.d_fcnet(z)
         # unflatten to have a (B, final_in_ch, final_H, final_W) tensor
         z = z.view(-1, self.initial_indim, self.initial_H, self.initial_W)
-        events_out = self.d_convnet(z)
-        return events_out
+        recon_x = self.d_convnet(z)
+        return recon_x
