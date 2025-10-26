@@ -29,7 +29,6 @@ LOSS_MAP = {
 }
 
 
-# TODO basically idea 1, but mixing self-supervised methods and supervised ones (events and rangemeter are trained in a self-supervised manner, to predict at each time step, and are then used to train the traj-net in a supervised manner)
 class IdeaTwo(IdeaOne):
     """Idea number 2: add self-supervised learning to Idea number 1, to hopefully maximise information extraction."""
 
@@ -41,9 +40,10 @@ class IdeaTwo(IdeaOne):
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
             self.p_net.parameters(), lr=self.conf["optim_lr"]
         )
-        self.criteria = [
-            LOSS_MAP[loss]() for loss in self.conf["loss"]
-        ]  # TODO config should contain the list of losses (at least 3)
+        self.criteria = [LOSS_MAP[loss]() for loss in self.conf["loss"]]
+        assert len(self.criteria) >= 3, (
+            "[!] Need at least three losses (one for the VAE, one for the trajectory net, and one for the rangemeter net)."
+        )
 
     def train_model(self) -> None:
         return super().train_model()
