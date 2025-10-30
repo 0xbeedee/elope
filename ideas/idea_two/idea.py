@@ -32,6 +32,7 @@ class IdeaTwo(IdeaOne):
     """Idea number 2: add self-supervised learning to Idea number 1, to hopefully maximise information extraction."""
 
     def __init__(self, config: DictConfig) -> None:
+        super().__init__(config)
         self.net_manager = NetManager(config["nets"])
 
         self.n_epochs = self.conf["n_epochs"]
@@ -39,10 +40,10 @@ class IdeaTwo(IdeaOne):
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
             self.p_net.parameters(), lr=self.conf["optim_lr"]
         )
-        self.criteria = [LOSS_MAP[loss]() for loss in self.conf["loss"]]
-        assert len(self.criteria) >= 2, (
-            "[!] Need at least two losses (one for the VAE, and one for the trajectory and rangemeter nets)."
-        )  # range_net and traj_net get the same loss because they both predict real values
+        self.criteria = [
+            LOSS_MAP["vae"],
+            self.criterion,
+        ]  # the YAML file is used to specify the traj_net and range_net losses
 
     def train_model(self) -> None:
         return super().train_model()
