@@ -1,5 +1,6 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from omegaconf import DictConfig
+from tqdm import tqdm
 
 from ideas.idea_one.idea import IdeaOne
 from ideas.idea_two.nets import NetManager
@@ -52,22 +53,38 @@ class IdeaTwo(IdeaOne):
     def run_model(self) -> Dict[int, Dict[str, List[float]]]:
         return super().run_model()
 
-    def _acc_batch_train(self, samples: list, labels: list) -> float:
-        """Processes a single accumulated batch of data."""
-        # _one_epoch_train_ is the same as the one for IdeaOne
-        acc_loss = self._train_alternating(samples, labels)
-        return acc_loss
+    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
+        """Trains the network for a single epoch (i.e., a single pass over all the training data).
 
-    def _train_alternating(self, samples: list, labels: list) -> float:
-        """Trains the various network in an alternating fashion.
-
-        We train the events tVAE first, then train the two remaining networks in parallel.
+        The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
         """
+        total_samples = 0
+        acc_samples, acc_labels = [], []
+        # ignore the file number during training
+        for X_batch, y_batch, _ in tqdm_ctxt:
+            self._train_events(X_batch)
+
+            acc_samples.append(X_batch)
+            acc_labels.append(y_batch)
+            if len(acc_samples) == self.conf["acc_steps"]:
+                acc_loss = self._acc_batch_train(acc_samples, acc_labels)
+                # calculate total samples this way because iterable datasets do not have a __len__
+                total_samples += len(acc_samples)
+                acc_samples.clear()
+                acc_labels.clear()
+
+        if acc_samples:
+            # handle the remaining samples
+            res_acc_loss = self._acc_batch_train(acc_samples, acc_labels)
+        tqdm_ctxt.set_postfix({"loss": acc_loss, "res_los": res_acc_loss})
+
+        return acc_loss, res_acc_loss, total_samples
+
+    def _acc_batch_train(self, samples: list, labels: list) -> float:
+        """Processes a single accumulated batch of data, training the trajectory and the rangemeter networks.
+
+        The events tVAE is trained before both, because both networks use the tVAE latents."""
         total_loss = 0
-
-        self._train_events(samples)
-
-        # train the traj net and rangemeter net at the same time
         self.optimizer.zero_grad()
         for X, y in zip(samples, labels):
             # handles single samples to preserve temporal and spatial semantics
@@ -77,24 +94,20 @@ class IdeaTwo(IdeaOne):
             loss.backward()
             total_loss += loss.item()
         self.optimizer.step()
-
         # mean-reduce the loss
         return total_loss / len(samples)
 
-    def _train_events(self, samples: list) -> float:
+    def _train_events(self, X_dict: Dict[str, List[torch.Tensor]]) -> float:
         """Trains the events tVAE.
 
         We train the events tVAE before the other networks because the latter use the tVAE latents.
         """
+        # TODO this is the right idea, but the execution is ugly...
         total_loss = 0
-
         self.optimizer.zero_grad()
-        for X in samples:
-            recon, _, z_mean, z_logvar = self.net_manager.events_vae(X)
-            loss = self.criteria[0](recon, X, z_mean, z_logvar)
-            loss.backward()
-            total_loss += loss.item()
+        recon, _, z_mean, z_logvar = self.net_manager.events_vae(X_dict)
+        loss = self.criteria[0](recon, X_dict, z_mean, z_logvar)
+        loss.backward()
+        total_loss += loss.item()
         self.optimizer.step()
-
-        # mean-reduce the loss
-        return total_loss / len(samples)
+        return total_loss
