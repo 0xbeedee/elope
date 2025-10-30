@@ -1,19 +1,17 @@
 idea_name: "two"
 
-# TODO: all the values below need a look
-
 global:
   # the number of epochs to train for
   n_epochs: 10
   # the optimiser to use for the net
   optimiser: "adam"
   # learning rate for the optimiser
-  optim_lr: 0.001 
+  optim_lr: 0.001
   # the loss function to use
   loss: "mse"
 
   # the accumulation steps (i.e., batch size)
-  acc_steps: 8 
+  acc_steps: 8
 
 nets:
   device: "cpu"
@@ -30,13 +28,13 @@ nets:
   pool_ker_size: 2
   # the desired number of frames in the stack, after passing the stack through the 3D convs
   N_out_conv: 32
-  # the hidden dims for each layer of the convnet 
+  # the hidden dims for each layer of the convnet
   conv_dims: [8, 16, 32]
   # the dimension of the output layer of the events FC net
   events_fc_out: 32
 
-  # the hidden dims for each layer of the FC trajectory net 
-  traj_dims: [16, 32] 
+  # the hidden dims for each layer of the FC trajectory net
+  traj_dims: [16, 32]
   # the output dimension of the FC trajectory net
   traj_out: 32
 
@@ -51,4 +49,3 @@ nets:
   final_dims: [64, 32]
   # the output dimension of the FC final net
   final_out: 6
-
