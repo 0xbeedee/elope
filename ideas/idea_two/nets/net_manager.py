@@ -19,9 +19,9 @@ class NetManager(nn.Module):
         super().__init__()
         self.device = torch.device(nets_config["device"])
 
-        self.events_vae = EventstVAE(nets_config["events"])
-        self.traj_net = TrajNet(nets_config["traj"])
-        self.rangemeter_net = RangemeterGRU(nets_config["range"])
+        self.events_vae = EventstVAE(nets_config)
+        self.traj_net = TrajNet(nets_config)
+        self.rangemeter_net = RangemeterGRU(nets_config)
 
         # construct the final net
         layers = []
