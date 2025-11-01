@@ -38,7 +38,7 @@ class NetManager(nn.Module):
         self, inputs: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with torch.no_grad():
-            _, z, _ = self.events_vae(inputs["event_stack"].unsqueeze(1))
+            _, z, _ = self.events_vae(inputs["event_stack"])
         traj_out = self.traj_net(z)
         _, h_n = self.rangemeter_net(z)
         rangemeter_out = self.rangemeter_net(h_n[-1])
