@@ -14,7 +14,13 @@ OPTIM_MAP = {
 }
 
 
-def vae_loss(recon_x, x, mu, logvar, beta=1.0):
+def vae_loss(
+    recon_x: torch.Tensor,  # (B, 3, H, W), because three classes
+    x: torch.Tensor,  # (B, H, W)
+    mu: torch.Tensor,  # (B, z.dim)
+    logvar: torch.Tensor,  # (B, z.dim)
+    beta: float = 1.0,
+):
     # use cross_entropy because we have three classes for the events data (-1, 0, 1)
     ce_loss = F.cross_entropy(recon_x, x, reduction="sum")
     kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
