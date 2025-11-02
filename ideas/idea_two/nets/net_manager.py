@@ -38,10 +38,15 @@ class NetManager(nn.Module):
         self, inputs: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         with torch.no_grad():
-            _, z, _ = self.events_vae(inputs["event_stack"])
-        traj_out = self.traj_net(z)
-        _, h_n = self.rangemeter_net(z)
-        rangemeter_out = self.rangemeter_net(h_n[-1])
+            # TODO this seems wasteful: how could i better use the information in the time latents?
+            # get the latent repr from the frame at T - 1
+            _, z, _ = self.events_vae.encoder(
+                inputs["event_stack"][:, -2, :, :].unsqueeze(1)
+            )
+        traj_out = self.traj_net(torch.cat((z, inputs["trajectory"]), dim=1))
+        rangemeter_out = self.rangemeter_net(
+            torch.cat((z, inputs["rangemeter"]), dim=1)
+        )
 
         final_out = self.final_net(torch.concat((traj_out, rangemeter_out), dim=1))
         return final_out

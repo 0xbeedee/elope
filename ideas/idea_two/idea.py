@@ -96,7 +96,7 @@ class IdeaTwo(IdeaOne):
             # handles single samples to preserve temporal and spatial semantics
             # (inefficient, but the alternative approaches are not convincing)
             pred = self.net_manager(X)
-            loss = self.criterion(pred, y)
+            loss = self.criteria[1](pred, y)
             loss.backward()
             total_loss += loss.item()
         self.optimizer.step()

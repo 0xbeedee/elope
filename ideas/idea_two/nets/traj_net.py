@@ -15,7 +15,6 @@ class TrajNet(nn.Module):
         self.device = torch.device(nets_config["device"])
 
         layers = []
-        # the latent dime from the events VAE + phi, theta, psi, p, q, r
         in_dim = nets_config["events_fc_out"] + 6
         for hidden_dim in nets_config["traj_dims"]:
             layers.append(nn.Linear(in_dim, hidden_dim))
@@ -24,7 +23,7 @@ class TrajNet(nn.Module):
         layers.append(nn.Linear(in_dim, nets_config["traj_out"]))
         self.traj_net = nn.Sequential(*layers).to(self.device)
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # get output from the traj net
-        traj_out = self.traj_net(inputs["trajectory"])
+        traj_out = self.traj_net(x)  # (B, vae_latent + phi, theta, psi, p, q, r)
         return traj_out
