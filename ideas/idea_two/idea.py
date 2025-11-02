@@ -15,14 +15,14 @@ OPTIM_MAP = {
 
 
 def vae_loss(
-    recon_x: torch.Tensor,  # (B, 3, H, W), because three classes
+    recon_x: torch.Tensor,  # (B, 3, H, W)
     x: torch.Tensor,  # (B, H, W)
     mu: torch.Tensor,  # (B, z.dim)
     logvar: torch.Tensor,  # (B, z.dim)
     beta: float = 1.0,
 ):
     # use cross_entropy because we have three classes for the events data (-1, 0, 1)
-    ce_loss = F.cross_entropy(recon_x, x, reduction="sum")
+    ce_loss = F.cross_entropy(recon_x, x, reduction="mean")
     kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return ce_loss + beta * kld_loss
 
@@ -103,17 +103,29 @@ class IdeaTwo(IdeaOne):
         # mean-reduce the loss
         return total_loss / len(samples)
 
-    def _train_events(self, X_dict: Dict[str, List[torch.Tensor]]) -> float:
-        """Trains the events tVAE.
+    def _train_events(self, X_dict: Dict[str, torch.Tensor]) -> float:
+        """Trains the events tVAE with temporal prediction (t -> t + 1).
 
         We train the events tVAE before the other networks because the latter use the tVAE latents.
         """
-        # TODO this is the right idea, but the execution is ugly...
+        event_stack = X_dict["event_stack"]
+        B, T, H, W = event_stack.shape
+        num_windows = T - 1  # can have at most T-1 sliding windows (with stride=1)
+
+        # TODO sequential training is inefficient (mostly done to preserve temporal smantics, but should probably be parallelised)!
         total_loss = 0
         self.optimizer.zero_grad()
-        recon, _, z_mean, z_logvar = self.net_manager.events_vae(X_dict)
-        loss = self.criteria[0](recon, X_dict, z_mean, z_logvar)
-        loss.backward()
-        total_loss += loss.item()
+        for i in range(num_windows):
+            # t frame
+            t_frame = event_stack[:, i : i + 1, :, :]  # (B, 1, H, W)
+            # t + 1 frame
+            tp1_frame = event_stack[:, i + 1, :, :]  # (B, H, W)
+            tp1_frame = (tp1_frame + 1).long()  # from {-1, 0, 1} to {0, 1, 2}
+
+            recon_tp1, _, z_mean, z_logvar = self.net_manager.events_vae(t_frame)
+
+            loss = self.criteria[0](recon_tp1, tp1_frame, z_mean, z_logvar)
+            loss.backward()
+            total_loss += loss.item()
         self.optimizer.step()
-        return total_loss
+        return total_loss / num_windows  # avg loss per window

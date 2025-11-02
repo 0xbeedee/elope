@@ -1,4 +1,3 @@
-from typing import Dict
 from omegaconf import DictConfig
 
 import torch
@@ -11,8 +10,6 @@ class EventstVAE(nn.Module):
     Temporal in the sense that we do not use the VAE to reconstruct the DVS matrix at time t, but the DVA metrix at time t + 1 (given its state at time t), i.e., we force our latents to include temporal information.
     """
 
-    # TODO currently, the VAE predicts the events at time t! should predict the events at time t+1, as in the docstring above
-
     def __init__(self, nets_config: DictConfig):
         super().__init__()
         # movement to the device is handled internally through nets_config
@@ -24,11 +21,11 @@ class EventstVAE(nn.Module):
             self.encoder.conv_outdim,
         )
 
-    def forward(self, inputs: Dict[str, torch.Tensor]):
-        z, z_mean, z_logvar = self.encoder(inputs)
-        recon_x = self.decoder(z)
+    def forward(self, t_frame: torch.Tensor):
+        z, z_mean, z_logvar = self.encoder(t_frame)
+        recon_tp1 = self.decoder(z)
         # return the latent as well, to pass it to the other nets
-        return recon_x, z, z_mean, z_logvar
+        return recon_tp1, z, z_mean, z_logvar
 
 
 class EventsEncoder(nn.Module):
@@ -83,11 +80,9 @@ class EventsEncoder(nn.Module):
         ).to(device)
 
     def forward(
-        self, inputs: Dict[str, torch.Tensor]
+        self, t_frame: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # get output from the event nets
-        # unsqueeze to have a (B, in_ch, H, W) tensor
-        events_out = self.events_convnet(inputs["event_stack"].unsqueeze(1))
+        events_out = self.events_convnet(t_frame)  # (B, 1, H, W)
         events_out = events_out.view(events_out.size(0), -1)  # flatten
 
         z_mean = self.events_fcnet_mu(events_out)
@@ -139,8 +134,9 @@ class EventsDecoder(nn.Module):
         # invert convolutional layers
         reversed_conv_dims = list(reversed(nets_config["conv_dims"]))
         for i in range(len(reversed_conv_dims)):
+            # final number of channels should be 3 to accommodate the three possible outcomes of DVS camera (-1, 0, 1)
             out_dim = (
-                reversed_conv_dims[i + 1] if i + 1 < len(reversed_conv_dims) else 1
+                reversed_conv_dims[i + 1] if i + 1 < len(reversed_conv_dims) else 3
             )
             # TODO nn.Upsample() could also be used here
             # avoid unpooling layers (https://github.com/L1aoXingyu/pytorch-beginner/blob/master/08-AutoEncoder/conv_autoencoder.py)
@@ -155,6 +151,7 @@ class EventsDecoder(nn.Module):
                     output_padding=(s * Km - 1),  # adjust based on encoder stride
                 )
             )
+            # no activation on the final layer (cross-entropy expects raw logits)
             if i < len(reversed_conv_dims) - 1:
                 layers.append(nn.SiLU())
             in_dim = out_dim  # update the input channels
