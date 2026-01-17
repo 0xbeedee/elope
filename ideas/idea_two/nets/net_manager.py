@@ -4,9 +4,10 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
+from ideas.common.nets.rangemeter_gru import RangemeterGRU
+from ideas.common.nets.traj_net import TrajNet
+
 from .events_tvae import EventstVAE
-from .rangemeter_gru import RangemeterGRU
-from .traj_net import TrajNet
 
 
 class NetManager(nn.Module):
@@ -20,8 +21,8 @@ class NetManager(nn.Module):
         self.device = torch.device(nets_config["device"])
 
         self.events_vae = EventstVAE(nets_config)
-        self.traj_net = TrajNet(nets_config)
-        self.rangemeter_net = RangemeterGRU(nets_config)
+        self.traj_net = TrajNet(nets_config, input_dim=nets_config["events_fc_out"] + 6)
+        self.rangemeter_net = RangemeterGRU(nets_config, use_latent=True)
 
         # construct the final net
         layers = []

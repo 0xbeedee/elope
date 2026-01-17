@@ -3,7 +3,9 @@ from typing import Dict
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
-from torch.nn.utils.rnn import pack_padded_sequence
+
+from ideas.common.nets.rangemeter_gru import RangemeterGRU
+from ideas.common.nets.traj_net import TrajNet
 
 
 class ParallelNet(nn.Module):
@@ -50,28 +52,10 @@ class ParallelNet(nn.Module):
         self.events_fcnet = nn.Linear(in_dim, nets_config["events_fc_out"]).to(device)
 
         # construct the net for the trajectory data
-        layers.clear()
-        in_dim = 6  # phi, theta, psi, p, q, r (xs and vs are labels)
-        for hidden_dim in nets_config["traj_dims"]:
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, nets_config["traj_out"]))
-        self.traj_net = nn.Sequential(*layers).to(device)
+        self.traj_net = TrajNet(nets_config, input_dim=6)
 
         # construct the net for the rangemeter data
-        layers.clear()
-        in_dim = 1  # each rangemeter reading is a scalar value
-        self.rangemeter_gru = nn.GRU(
-            in_dim, nets_config["range_gru_hdim"], batch_first=True, device=device
-        )
-        in_dim = nets_config["range_gru_hdim"]
-        for hidden_dim in nets_config["range_dims"]:
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, nets_config["range_out"]))
-        self.rangemeter_fcnet = nn.Sequential(*layers).to(device)
+        self.rangemeter_net = RangemeterGRU(nets_config, use_latent=False)
 
         # construct the final net
         layers.clear()
@@ -98,22 +82,12 @@ class ParallelNet(nn.Module):
         # get output from the traj net
         traj_out = self.traj_net(inputs["trajectory"])
 
-        # get output from the rangemeter nets
-        # unsqueeze to have a (B, seq_len, in_dim) tensor
-        rangemeter = inputs["rangemeter"].unsqueeze(-1)
-
-        if "range_lengths" in inputs:
-            # pack_padded_sequence for variable-length sequences
-            lengths = inputs["range_lengths"].cpu()
-            packed = pack_padded_sequence(
-                rangemeter, lengths, batch_first=True, enforce_sorted=False
-            )
-            _, h_n = self.rangemeter_gru(packed)
-        else:
-            _, h_n = self.rangemeter_gru(rangemeter)
-
-        # use the output of the last GRU layer
-        rangemeter_out = self.rangemeter_fcnet(h_n[-1])
+        # get output from the rangemeter net
+        rangemeter_out = self.rangemeter_net(
+            inputs["rangemeter"],
+            z=None,
+            lengths=inputs.get("range_lengths", None),
+        )
 
         # get final output by concatenating the previous outputs
         final_out = self.final_net(

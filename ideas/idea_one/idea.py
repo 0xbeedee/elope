@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from ideas.base import Idea
 from ideas.idea_one.nets.parallel_net import ParallelNet
-from ideas.idea_one.utils import (
+from ideas.common import (
     EventsTrajDataset,
     collate_fn,
     preprocess_data_streaming,
