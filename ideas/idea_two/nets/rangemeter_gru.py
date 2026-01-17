@@ -1,7 +1,9 @@
-from omegaconf import DictConfig
+from typing import Optional
 
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class RangemeterGRU(nn.Module):
@@ -25,10 +27,25 @@ class RangemeterGRU(nn.Module):
         layers.append(nn.Linear(in_dim, nets_config["range_out"]))
         self.rangemeter_fcnet = nn.Sequential(*layers).to(self.device)
 
-    def forward(self, rangemeter: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        rangemeter: torch.Tensor,
+        z: torch.Tensor,
+        lengths: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         # rangemeter: (B, seq_len), z: (B, latent_dim)
         # unsqueeze to have a (B, seq_len, 1) tensor for GRU
-        _, h_n = self.rangemeter_gru(rangemeter.unsqueeze(-1))
+        rangemeter_3d = rangemeter.unsqueeze(-1)
+
+        if lengths is not None:
+            # pack_padded_sequence for variable-length sequences
+            packed = pack_padded_sequence(
+                rangemeter_3d, lengths.cpu(), batch_first=True, enforce_sorted=False
+            )
+            _, h_n = self.rangemeter_gru(packed)
+        else:
+            _, h_n = self.rangemeter_gru(rangemeter_3d)
+
         # concatenate GRU hidden state with latent z
         combined = torch.cat((h_n[-1], z), dim=1)
         # pass through FC layers

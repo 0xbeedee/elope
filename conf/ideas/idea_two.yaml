@@ -10,8 +10,12 @@ global:
   # the loss function to use
   loss: "mse"
 
-  # the accumulation steps (i.e., batch size)
-  acc_steps: 8
+  # batch size for DataLoader (samples per batch)
+  batch_size: 4
+  # number of workers for data loading (0 = main process only)
+  num_workers: 2
+  # the accumulation steps (number of batches to accumulate before optimizer step)
+  acc_steps: 2
 
 nets:
   device: "cpu"

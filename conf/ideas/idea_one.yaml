@@ -6,12 +6,16 @@ global:
   # the optimiser to use for the net
   optimiser: "adam"
   # learning rate for the optimiser
-  optim_lr: 0.001 
+  optim_lr: 0.001
   # the loss function to use
   loss: "mse"
 
-  # the accumulation steps (i.e., batch size)
-  acc_steps: 8 
+  # batch size for DataLoader (samples per batch)
+  batch_size: 4
+  # number of workers for data loading (0 = main process only)
+  num_workers: 2
+  # the accumulation steps (number of batches to accumulate before optimizer step)
+  acc_steps: 2
 
 nets:
   device: "cpu"
@@ -28,13 +32,13 @@ nets:
   pool_ker_size: 2
   # the desired number of frames in the stack, after passing the stack through the 3D convs
   N_out_conv: 32
-  # the hidden dims for each layer of the convnet 
+  # the hidden dims for each layer of the convnet
   conv_dims: [8, 16, 32]
   # the dimension of the output layer of the events FC net
   events_fc_out: 32
 
-  # the hidden dims for each layer of the FC trajectory net 
-  traj_dims: [16, 32] 
+  # the hidden dims for each layer of the FC trajectory net
+  traj_dims: [16, 32]
   # the output dimension of the FC trajectory net
   traj_out: 32
 
@@ -49,4 +53,3 @@ nets:
   final_dims: [64, 32]
   # the output dimension of the FC final net
   final_out: 6
-

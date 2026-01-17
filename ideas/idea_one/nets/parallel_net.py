@@ -1,8 +1,9 @@
 from typing import Dict
-from omegaconf import DictConfig
 
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class ParallelNet(nn.Module):
@@ -99,12 +100,22 @@ class ParallelNet(nn.Module):
 
         # get output from the rangemeter nets
         # unsqueeze to have a (B, seq_len, in_dim) tensor
-        _, h_n = self.rangemeter_gru(inputs["rangemeter"].unsqueeze(-1))
+        rangemeter = inputs["rangemeter"].unsqueeze(-1)
+
+        if "range_lengths" in inputs:
+            # pack_padded_sequence for variable-length sequences
+            lengths = inputs["range_lengths"].cpu()
+            packed = pack_padded_sequence(
+                rangemeter, lengths, batch_first=True, enforce_sorted=False
+            )
+            _, h_n = self.rangemeter_gru(packed)
+        else:
+            _, h_n = self.rangemeter_gru(rangemeter)
+
         # use the output of the last GRU layer
         rangemeter_out = self.rangemeter_fcnet(h_n[-1])
 
         # get final output by concatenating the previous outputs
-        # TODO there might be smarter way to combine these inputs
         final_out = self.final_net(
             torch.concat((events_out, traj_out, rangemeter_out), dim=1)
         )

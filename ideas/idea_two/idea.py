@@ -90,25 +90,28 @@ class IdeaTwo(IdeaOne):
         """Trains the events tVAE with temporal prediction (t -> t + 1).
 
         We train the events tVAE before the other networks because the latter use the tVAE latents.
+        All (t, t+1) frame pairs are batched together for a single forward/backward pass.
         """
         event_stack = X_dict["event_stack"]
         B, T, H, W = event_stack.shape
-        num_windows = T - 1  # can have at most T-1 sliding windows (with stride=1)
 
-        # TODO sequential training is inefficient (mostly done to preserve temporal smantics, but should probably be parallelised)!
-        total_loss = 0
+        if T < 2:
+            return 0.0  # need at least 2 frames for temporal prediction
+
+        # create all frame pairs
+        t_frames = event_stack[:, :-1, :, :]  # (B, T-1, H, W)
+        tp1_frames = event_stack[:, 1:, :, :]  # (B, T-1, H, W)
+
+        # (B, T-1, H, W) -> (B*(T-1), 1, H, W)
+        num_pairs = B * (T - 1)
+        t_frames = t_frames.reshape(num_pairs, 1, H, W)
+        tp1_frames = tp1_frames.reshape(num_pairs, H, W)
+        tp1_frames = (tp1_frames + 1).long()  # from {-1, 0, 1} to {0, 1, 2}
+
         self.optimizer.zero_grad()
-        for i in range(num_windows):
-            # t frame
-            t_frame = event_stack[:, i : i + 1, :, :]  # (B, 1, H, W)
-            # t + 1 frame
-            tp1_frame = event_stack[:, i + 1, :, :]  # (B, H, W)
-            tp1_frame = (tp1_frame + 1).long()  # from {-1, 0, 1} to {0, 1, 2}
-
-            recon_tp1, _, z_mean, z_logvar = self.net.events_vae(t_frame)
-
-            loss = self.criteria[0](recon_tp1, tp1_frame, z_mean, z_logvar)
-            loss.backward()
-            total_loss += loss.item()
+        recon_tp1, _, z_mean, z_logvar = self.net.events_vae(t_frames)
+        loss = self.criteria[0](recon_tp1, tp1_frames, z_mean, z_logvar)
+        loss.backward()
         self.optimizer.step()
-        return total_loss / num_windows  # avg loss per window
+
+        return loss.item()
