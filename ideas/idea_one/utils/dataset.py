@@ -1,9 +1,8 @@
-from typing import Iterator, Dict, Tuple
-
 import os
-import h5py
 import random
+from typing import Dict, Iterator, Tuple
 
+import h5py
 import torch
 from torch.utils.data import IterableDataset
 
@@ -52,7 +51,7 @@ class EventsTrajDataset(IterableDataset):
         self.transform = transform
 
     def __iter__(self) -> Iterator[Tuple[Dict[str, torch.Tensor], torch.Tensor, int]]:
-        for fname in self.file_list[:2]:
+        for fname in self.file_list:
             if not fname.endswith(".h5"):
                 # ignore all non-h5py files
                 continue
