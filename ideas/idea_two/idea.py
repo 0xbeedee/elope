@@ -1,12 +1,12 @@
 from typing import Dict, List, Tuple
+
+import torch
+import torch.nn.functional as F
 from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ideas.idea_one.idea import IdeaOne
 from ideas.idea_two.nets import NetManager
-
-import torch
-import torch.nn.functional as F
 
 # dict for mapping optimiser names to the correct classes
 OPTIM_MAP = {
@@ -45,7 +45,7 @@ class IdeaTwo(IdeaOne):
         self.n_epochs = self.conf["n_epochs"]
         # TODO possibly multiple optimisers?
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
-            self.p_net.parameters(), lr=self.conf["optim_lr"]
+            self.net_manager.parameters(), lr=self.conf["optim_lr"]
         )
         self.criteria = [
             LOSS_MAP["vae"],
@@ -89,7 +89,8 @@ class IdeaTwo(IdeaOne):
     def _acc_batch_train(self, samples: list, labels: list) -> float:
         """Processes a single accumulated batch of data, training the trajectory and the rangemeter networks.
 
-        The events tVAE is trained before both, because both networks use the tVAE latents."""
+        The events tVAE is trained before both, because both networks use the tVAE latents.
+        """
         total_loss = 0
         self.optimizer.zero_grad()
         for X, y in zip(samples, labels):
