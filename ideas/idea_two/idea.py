@@ -40,32 +40,28 @@ class IdeaTwo(IdeaOne):
 
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
-        self.net_manager = NetManager(config["nets"])
+        # Override self.net with NetManager (parent sets it to ParallelNet)
+        self.net = NetManager(config["nets"])
 
         self.n_epochs = self.conf["n_epochs"]
         # TODO possibly multiple optimisers?
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
-            self.net_manager.parameters(), lr=self.conf["optim_lr"]
+            self.net.parameters(), lr=self.conf["optim_lr"]
         )
         self.criteria = [
             LOSS_MAP["vae"],
             self.criterion,
         ]  # the YAML file is used to specify the traj_net and range_net losses
 
-    def train_model(self) -> None:
-        return super().train_model()
-
-    @torch.no_grad
-    def run_model(self) -> Dict[int, Dict[str, List[float]]]:
-        return super().run_model()
-
-    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
+    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, int]:
         """Trains the network for a single epoch (i.e., a single pass over all the training data).
 
         The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
         """
         total_samples = 0
+        total_loss = 0.0
         acc_samples, acc_labels = [], []
+        last_batch_loss = 0.0
         # ignore the file number during training
         for X_batch, y_batch, _ in tqdm_ctxt:
             self._train_events(X_batch)
@@ -73,36 +69,22 @@ class IdeaTwo(IdeaOne):
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == self.conf["acc_steps"]:
-                acc_loss = self._acc_batch_train(acc_samples, acc_labels)
+                last_batch_loss = self._acc_batch_train(acc_samples, acc_labels)
+                total_loss += last_batch_loss * len(acc_samples)
                 # calculate total samples this way because iterable datasets do not have a __len__
                 total_samples += len(acc_samples)
                 acc_samples.clear()
                 acc_labels.clear()
+                tqdm_ctxt.set_postfix({"loss": last_batch_loss})
 
         if acc_samples:
             # handle the remaining samples
-            res_acc_loss = self._acc_batch_train(acc_samples, acc_labels)
-        tqdm_ctxt.set_postfix({"loss": acc_loss, "res_los": res_acc_loss})
+            last_batch_loss = self._acc_batch_train(acc_samples, acc_labels)
+            total_loss += last_batch_loss * len(acc_samples)
+            total_samples += len(acc_samples)
+            tqdm_ctxt.set_postfix({"loss": last_batch_loss})
 
-        return acc_loss, res_acc_loss, total_samples
-
-    def _acc_batch_train(self, samples: list, labels: list) -> float:
-        """Processes a single accumulated batch of data, training the trajectory and the rangemeter networks.
-
-        The events tVAE is trained before both, because both networks use the tVAE latents.
-        """
-        total_loss = 0
-        self.optimizer.zero_grad()
-        for X, y in zip(samples, labels):
-            # handles single samples to preserve temporal and spatial semantics
-            # (inefficient, but the alternative approaches are not convincing)
-            pred = self.net_manager(X)
-            loss = self.criteria[1](pred, y)
-            loss.backward()
-            total_loss += loss.item()
-        self.optimizer.step()
-        # mean-reduce the loss
-        return total_loss / len(samples)
+        return total_loss, total_samples
 
     def _train_events(self, X_dict: Dict[str, torch.Tensor]) -> float:
         """Trains the events tVAE with temporal prediction (t -> t + 1).
@@ -123,7 +105,7 @@ class IdeaTwo(IdeaOne):
             tp1_frame = event_stack[:, i + 1, :, :]  # (B, H, W)
             tp1_frame = (tp1_frame + 1).long()  # from {-1, 0, 1} to {0, 1, 2}
 
-            recon_tp1, _, z_mean, z_logvar = self.net_manager.events_vae(t_frame)
+            recon_tp1, _, z_mean, z_logvar = self.net.events_vae(t_frame)
 
             loss = self.criteria[0](recon_tp1, tp1_frame, z_mean, z_logvar)
             loss.backward()

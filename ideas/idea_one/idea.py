@@ -1,15 +1,15 @@
-from typing import Tuple, Dict, List
-from omegaconf import DictConfig
-from tqdm import tqdm
 import sys
+from typing import Dict, List, Tuple
+
+import torch
+from omegaconf import DictConfig
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from ideas.base import Idea
 from ideas.idea_one.nets.parallel_net import ParallelNet
 from ideas.idea_one.utils import EventsTrajDataset, preprocess_data_streaming
-
-import torch
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
 # dict for mapping optimiser names to the correct classes
 OPTIM_MAP = {
@@ -30,11 +30,11 @@ class IdeaOne(Idea):
 
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config)
-        self.p_net = ParallelNet(config["nets"])
+        self.net = ParallelNet(config["nets"])
 
         self.n_epochs = self.conf["n_epochs"]
         self.optimizer = OPTIM_MAP[self.conf["optimiser"]](
-            self.p_net.parameters(), lr=self.conf["optim_lr"]
+            self.net.parameters(), lr=self.conf["optim_lr"]
         )
         self.criterion = LOSS_MAP[self.conf["loss"]]()
 
@@ -54,22 +54,18 @@ class IdeaOne(Idea):
 
         writer = SummaryWriter()
 
-        epoch_loss, res_epoch_loss = 0.0, 0.0
         for epoch in range(self.n_epochs):
             with tqdm(
                 train_loader,
                 desc=f"\t[+] Epoch {epoch + 1}/{self.n_epochs}",
                 unit="batch",
             ) as tqdm_ctxt:
-                acc_loss, res_acc_loss, total_samples = self._one_epoch_train_(
-                    tqdm_ctxt
-                )
-                epoch_loss += acc_loss
-                res_epoch_loss += res_acc_loss if res_acc_loss else 0
+                epoch_loss, total_samples = self._one_epoch_train_(tqdm_ctxt)
 
-            avg_loss = epoch_loss / total_samples
-            writer.add_scalar("Loss/train", avg_loss, epoch)
-            print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
+            if total_samples > 0:
+                avg_loss = epoch_loss / total_samples
+                writer.add_scalar("Loss/train", avg_loss, epoch)
+                print(f"\t[+] Epoch {epoch + 1} - Average Loss: {avg_loss:.5f}")
 
     @torch.no_grad
     def run_model(self) -> Dict[int, Dict[str, List[float]]]:
@@ -98,7 +94,7 @@ class IdeaOne(Idea):
         fnum: int,
     ):
         """Fills the output dictionary incrementally, making sure it satisfies the output format specified on Kelvins (https://kelvins.esa.int/elope/submission-rules/)."""
-        preds = self.p_net(feats)  # [1, 6]
+        preds = self.net(feats)  # [1, 6]
         vs = preds[0][3:].tolist()  # [vx, vy, vz]
         # xs = preds[0][:3].tolist()  # [x, y, z]
 
@@ -107,30 +103,36 @@ class IdeaOne(Idea):
         for k, v in zip(("vx", "vy", "vz"), vs):
             data[k].append(v)
 
-    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, float]:
+    def _one_epoch_train_(self, tqdm_ctxt: tqdm) -> Tuple[float, int]:
         """Trains the network for a single epoch (i.e., a single pass over all the training data).
 
         The final underscore indicates that this function modifies its inputs as a side-effect. In this case, this is done to update the `tqdm_ctxt`.
         """
         total_samples = 0
+        total_loss = 0.0
         acc_samples, acc_labels = [], []
+        last_batch_loss = 0.0
         # ignore the file number during training
         for X_batch, y_batch, _ in tqdm_ctxt:
             acc_samples.append(X_batch)
             acc_labels.append(y_batch)
             if len(acc_samples) == self.conf["acc_steps"]:
-                acc_loss = self._acc_batch_train(acc_samples, acc_labels)
+                last_batch_loss = self._acc_batch_train(acc_samples, acc_labels)
+                total_loss += last_batch_loss * len(acc_samples)
                 # calculate total samples this way because iterable datasets do not have a __len__
                 total_samples += len(acc_samples)
                 acc_samples.clear()
                 acc_labels.clear()
+                tqdm_ctxt.set_postfix({"loss": last_batch_loss})
 
         if acc_samples:
             # handle the remaining samples
-            res_acc_loss = self._acc_batch_train(acc_samples, acc_labels)
-        tqdm_ctxt.set_postfix({"loss": acc_loss, "res_los": res_acc_loss})
+            last_batch_loss = self._acc_batch_train(acc_samples, acc_labels)
+            total_loss += last_batch_loss * len(acc_samples)
+            total_samples += len(acc_samples)
+            tqdm_ctxt.set_postfix({"loss": last_batch_loss})
 
-        return acc_loss, res_acc_loss, total_samples
+        return total_loss, total_samples
 
     def _acc_batch_train(self, samples: list, labels: list) -> float:
         """Processes a single accumulated batch of data."""
@@ -140,7 +142,7 @@ class IdeaOne(Idea):
         for sample, label in zip(samples, labels):
             # handles single samples to preserve temporal and spatial semantics
             # (inefficient, but the alternative approaches are not convincing)
-            pred = self.p_net(sample)
+            pred = self.net(sample)
             loss = self.criterion(pred, label)
             loss.backward()
             total_loss += loss.item()
