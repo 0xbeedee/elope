@@ -1,5 +1,6 @@
 import os
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "README.md"), encoding="utf-8") as f:
@@ -14,7 +15,7 @@ setup(
     version="0.1.0",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/de-lachende-cavalier/elope",
+    url="https://github.com/0xbeedee/elope",
     packages=find_packages(exclude=["*.egg-info", "tests*", "docs*", "build*"]),
     install_requires=requirements,
     python_requires=">=3.13",
