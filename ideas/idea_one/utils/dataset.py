@@ -1,10 +1,10 @@
 import os
 import random
-from typing import Dict, Iterator, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 import h5py
 import torch
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, get_worker_info
 
 
 class EventsTrajDataset(IterableDataset):
@@ -50,8 +50,23 @@ class EventsTrajDataset(IterableDataset):
 
         self.transform = transform
 
+    def _get_worker_file_list(self) -> List[str]:
+        """Split file list across workers for multi-worker loading."""
+        worker_info = get_worker_info()
+        if worker_info is None:
+            # single-process loading
+            return self.file_list
+
+        # multi-process loading, split files across workers
+        per_worker = len(self.file_list) // worker_info.num_workers
+        remainder = len(self.file_list) % worker_info.num_workers
+        start = worker_info.id * per_worker + min(worker_info.id, remainder)
+        end = start + per_worker + (1 if worker_info.id < remainder else 0)
+        return self.file_list[start:end]
+
     def __iter__(self) -> Iterator[Tuple[Dict[str, torch.Tensor], torch.Tensor, int]]:
-        for fname in self.file_list:
+        file_list = self._get_worker_file_list()
+        for fname in file_list:
             if not fname.endswith(".h5"):
                 # ignore all non-h5py files
                 continue
@@ -81,3 +96,50 @@ class EventsTrajDataset(IterableDataset):
                         features = self.transform(features)
 
                     yield features, labels, int(fname[:-3])
+
+
+def collate_fn(
+    batch: List[Tuple[Dict[str, torch.Tensor], torch.Tensor, int]],
+) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    """Collate function that pads variable-length tensors for batching.
+
+    Returns:
+        features: Dict with padded tensors and lengths for variable-size inputs
+        labels: Stacked labels tensor
+        fnums: Tensor of file numbers
+    """
+    features_list, labels_list, fnums_list = zip(*batch)
+
+    # stack fixed-size tensors
+    trajectory = torch.stack([f["trajectory"] for f in features_list])  # (B, 6)
+    labels = torch.stack(labels_list)  # (B, 6)
+    fnums = torch.tensor(fnums_list)  # (B,)
+
+    # event_stack (variable T dimension): each is (T_i, H, W)
+    event_stacks = [f["event_stack"] for f in features_list]
+    event_lengths = torch.tensor([e.shape[0] for e in event_stacks])
+    max_T = event_lengths.max().item()
+    H, W = event_stacks[0].shape[1], event_stacks[0].shape[2]
+    # pad to (max_T, H, W) then stack to (B, max_T, H, W)
+    padded_events = torch.zeros(len(batch), max_T, H, W)
+    for i, (events, length) in enumerate(zip(event_stacks, event_lengths)):
+        padded_events[i, :length] = events
+
+    # rangemeter (variable sequence length): each is (S_i,)
+    rangemeters = [f["rangemeter"] for f in features_list]
+    range_lengths = torch.tensor([r.shape[0] for r in rangemeters])
+    max_S = range_lengths.max().item()
+    # pad to (max_S,) then stack to (B, max_S)
+    padded_range = torch.zeros(len(batch), max_S)
+    for i, (rm, length) in enumerate(zip(rangemeters, range_lengths)):
+        padded_range[i, :length] = rm
+
+    features = {
+        "event_stack": padded_events,
+        "event_lengths": event_lengths,
+        "trajectory": trajectory,
+        "rangemeter": padded_range,
+        "range_lengths": range_lengths,
+    }
+
+    return features, labels, fnums
