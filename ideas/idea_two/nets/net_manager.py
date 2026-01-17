@@ -44,9 +44,7 @@ class NetManager(nn.Module):
                 inputs["event_stack"][:, -2, :, :].unsqueeze(1)
             )
         traj_out = self.traj_net(torch.cat((z, inputs["trajectory"]), dim=1))
-        rangemeter_out = self.rangemeter_net(
-            torch.cat((z, inputs["rangemeter"]), dim=1)
-        )
+        rangemeter_out = self.rangemeter_net(inputs["rangemeter"], z)
 
         final_out = self.final_net(torch.concat((traj_out, rangemeter_out), dim=1))
         return final_out
